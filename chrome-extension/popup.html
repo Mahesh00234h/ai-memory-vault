@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400, height=600">
+  <title>AI Context Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>AI Context Bridge</span>
+      </div>
+      <button id="addProjectBtn" class="btn-icon" title="New Project">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"></line>
+          <line x1="5" y1="12" x2="19" y2="12"></line>
+        </svg>
+      </button>
+    </header>
+
+    <!-- Main Views -->
+    <main id="mainContent">
+      <!-- Project List View -->
+      <section id="projectListView" class="view active">
+        <div id="projectList" class="project-list">
+          <!-- Projects will be rendered here -->
+        </div>
+        <div id="emptyState" class="empty-state hidden">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M3 7V17C3 18.1046 3.89543 19 5 19H19C20.1046 19 21 18.1046 21 17V9C21 7.89543 20.1046 7 19 7H13L11 5H5C3.89543 5 3 5.89543 3 7Z"/>
+          </svg>
+          <h3>No projects yet</h3>
+          <p>Create your first project to start bridging context across AI platforms.</p>
+          <button id="emptyAddBtn" class="btn-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Create Project
+          </button>
+        </div>
+      </section>
+
+      <!-- Project Form View -->
+      <section id="projectFormView" class="view">
+        <div class="form-header">
+          <button id="backBtn" class="btn-ghost">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+          <h2 id="formTitle">New Project</h2>
+        </div>
+        <form id="projectForm" class="project-form">
+          <input type="hidden" id="projectId">
+          
+          <div class="form-group">
+            <label for="projectName">Project Name *</label>
+            <input type="text" id="projectName" required placeholder="e.g., E-commerce Platform">
+          </div>
+          
+          <div class="form-group">
+            <label for="projectGoal">Goal</label>
+            <textarea id="projectGoal" rows="2" placeholder="What are you trying to build or achieve?"></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label for="projectProgress">Current Progress</label>
+            <textarea id="projectProgress" rows="2" placeholder="What have you completed so far?"></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label for="projectConstraints">Constraints</label>
+            <textarea id="projectConstraints" rows="2" placeholder="Any limitations or requirements?"></textarea>
+          </div>
+          
+          <div class="form-group">
+            <label for="projectTechStack">Tech Stack</label>
+            <input type="text" id="projectTechStack" placeholder="e.g., React, Node.js, PostgreSQL">
+          </div>
+          
+          <div class="form-group">
+            <label for="projectNotes">Additional Notes</label>
+            <textarea id="projectNotes" rows="3" placeholder="Any other context the AI should know..."></textarea>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" id="cancelBtn" class="btn-secondary">Cancel</button>
+            <button type="submit" class="btn-primary">Save Project</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Capture View -->
+      <section id="captureView" class="view">
+        <div class="form-header">
+          <button id="captureBackBtn" class="btn-ghost">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Back
+          </button>
+          <h2>Capture Context</h2>
+        </div>
+        <div class="capture-options">
+          <button id="captureSelection" class="capture-btn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M4 7V4h3M20 4h-3M20 20v-3M4 17v3h3M17 20h3"/>
+              <rect x="8" y="8" width="8" height="8" rx="1"/>
+            </svg>
+            <span>Capture Selection</span>
+            <small>Grab highlighted text from page</small>
+          </button>
+          <button id="captureConversation" class="capture-btn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <span>Capture Conversation</span>
+            <small>Extract full visible chat</small>
+          </button>
+        </div>
+        <div id="capturedContent" class="captured-content hidden">
+          <label>Captured Content (edit before saving):</label>
+          <textarea id="capturedText" rows="6"></textarea>
+          <div class="capture-actions">
+            <select id="captureTarget">
+              <option value="goal">Add to Goal</option>
+              <option value="current_progress">Add to Progress</option>
+              <option value="constraints">Add to Constraints</option>
+              <option value="tech_stack">Add to Tech Stack</option>
+              <option value="notes">Add to Notes</option>
+            </select>
+            <button id="saveCaptured" class="btn-primary">Save to Project</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Quick Actions Bar (shown when project is active) -->
+    <footer id="quickActions" class="quick-actions hidden">
+      <button id="injectBtn" class="action-btn inject">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 5v14M5 12l7 7 7-7"/>
+        </svg>
+        Inject Context
+      </button>
+      <button id="copyBtn" class="action-btn copy">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        Copy
+      </button>
+      <button id="captureBtn" class="action-btn capture">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        Capture
+      </button>
+    </footer>
+
+    <!-- Toast Notifications -->
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
