@@ -128,26 +128,41 @@ const elements = {
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', async () => {
-  await checkOnboardingStatus();
+  console.log('AI Context Bridge: Popup loaded');
+  try {
+    await checkOnboardingStatus();
+  } catch (error) {
+    console.error('Initialization error:', error);
+    // Fallback: show onboarding if there's an error
+    showOnboarding();
+  }
 });
 
 async function checkOnboardingStatus() {
+  console.log('Checking onboarding status...');
   try {
     const result = await chrome.storage.local.get(['userId', 'userName', 'teamId']);
+    console.log('Storage result:', result);
     
     if (result.userId && result.userName) {
-      // User exists, check if still valid in cloud
+      // User exists
       currentUser = { id: result.userId, name: result.userName };
+      console.log('User found:', currentUser.name);
       
-      if (result.teamId) {
-        // Load team info
-        const teams = await window.API.getUserTeams(result.userId);
-        currentTeam = teams.find(t => t.id === result.teamId) || null;
+      // Try to load team info (don't block on failure)
+      if (result.teamId && window.API) {
+        try {
+          const teams = await window.API.getUserTeams(result.userId);
+          currentTeam = teams.find(t => t.id === result.teamId) || null;
+        } catch (e) {
+          console.warn('Failed to load team:', e);
+        }
       }
       
       showMainApp();
     } else {
       // First time user
+      console.log('No user found, showing onboarding');
       showOnboarding();
     }
   } catch (error) {
@@ -157,23 +172,44 @@ async function checkOnboardingStatus() {
 }
 
 function showOnboarding() {
-  elements.onboardingView.classList.remove('hidden');
-  elements.mainApp.classList.add('hidden');
+  console.log('Showing onboarding view');
+  if (elements.onboardingView) {
+    elements.onboardingView.classList.remove('hidden');
+  }
+  if (elements.mainApp) {
+    elements.mainApp.classList.add('hidden');
+  }
   
-  elements.onboardingForm.addEventListener('submit', handleOnboardingSubmit);
+  // Setup form listener
+  if (elements.onboardingForm) {
+    elements.onboardingForm.addEventListener('submit', handleOnboardingSubmit);
+  }
 }
 
 async function handleOnboardingSubmit(e) {
   e.preventDefault();
   
-  const name = elements.userName.value.trim();
+  const name = elements.userName?.value?.trim();
   if (!name) return;
   
   try {
     showToast('Setting up...', 'info');
     
-    // Create user in cloud
-    const user = await window.API.createUser(name);
+    // Try to create user in cloud
+    let user;
+    if (window.API) {
+      try {
+        user = await window.API.createUser(name);
+      } catch (apiError) {
+        console.warn('Cloud API failed, using local only:', apiError);
+        // Fallback to local-only mode
+        user = { id: 'local_' + Date.now().toString(36), name: name };
+      }
+    } else {
+      // No API, use local only
+      user = { id: 'local_' + Date.now().toString(36), name: name };
+    }
+    
     currentUser = user;
     
     // Save locally
@@ -191,8 +227,13 @@ async function handleOnboardingSubmit(e) {
 }
 
 async function showMainApp() {
-  elements.onboardingView.classList.add('hidden');
-  elements.mainApp.classList.remove('hidden');
+  console.log('Showing main app');
+  if (elements.onboardingView) {
+    elements.onboardingView.classList.add('hidden');
+  }
+  if (elements.mainApp) {
+    elements.mainApp.classList.remove('hidden');
+  }
   
   // Display user name
   if (currentUser && elements.userNameDisplay) {
@@ -206,8 +247,14 @@ async function showMainApp() {
   setupEventListeners();
   updateCapturedBadge();
   
-  // Sync with cloud
-  syncWithCloud();
+  // Try to sync with cloud (don't block on failure)
+  if (window.API && currentUser && !currentUser.id.startsWith('local_')) {
+    try {
+      syncWithCloud();
+    } catch (e) {
+      console.warn('Cloud sync failed:', e);
+    }
+  }
 }
 
 // ===== STORAGE FUNCTIONS =====
