@@ -7,7 +7,7 @@
 let projects = [];
 let activeProjectId = null;
 let capturedContexts = [];
-let currentView = 'list';
+let currentView = 'captured'; // Default to captured view
 let selectedContextId = null;
 
 // ===== DOM ELEMENTS =====
@@ -32,6 +32,7 @@ const elements = {
   capturedList: document.getElementById('capturedList'),
   capturedEmptyState: document.getElementById('capturedEmptyState'),
   autoCaptureToggle: document.getElementById('autoCaptureToggle'),
+  refreshCaptureBtn: document.getElementById('refreshCaptureBtn'),
   
   // Buttons
   addProjectBtn: document.getElementById('addProjectBtn'),
@@ -488,6 +489,9 @@ function setupEventListeners() {
     saveSettings({ autoCapture: e.target.checked });
     showToast(e.target.checked ? 'Auto-capture enabled' : 'Auto-capture disabled');
   });
+  
+  // Refresh/Manual capture button
+  elements.refreshCaptureBtn?.addEventListener('click', handleManualCapture);
 }
 
 function handleFormSubmit(e) {
@@ -654,6 +658,85 @@ async function injectOrCopy(prompt) {
   } catch (error) {
     await copyToClipboard(prompt);
     showToast('Copied to clipboard');
+  }
+}
+
+/**
+ * Manual capture - fetch current chat from active AI tab
+ */
+async function handleManualCapture() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    
+    if (!tab?.url) {
+      showToast('No active tab', 'error');
+      return;
+    }
+    
+    // Check if it's an AI platform
+    const aiPlatforms = {
+      'chat.openai.com': 'ChatGPT',
+      'chatgpt.com': 'ChatGPT',
+      'claude.ai': 'Claude',
+      'gemini.google.com': 'Gemini',
+      'copilot.microsoft.com': 'Copilot',
+      'poe.com': 'Poe',
+      'perplexity.ai': 'Perplexity'
+    };
+    
+    let platform = null;
+    for (const [domain, name] of Object.entries(aiPlatforms)) {
+      if (tab.url.includes(domain)) {
+        platform = name;
+        break;
+      }
+    }
+    
+    if (!platform) {
+      showToast('Open an AI chat first (ChatGPT, Claude, etc.)', 'error');
+      return;
+    }
+    
+    showToast('Capturing...', 'info');
+    
+    chrome.tabs.sendMessage(tab.id, { type: 'GET_CONVERSATION' }, async (response) => {
+      if (chrome.runtime.lastError) {
+        showToast('Cannot capture - reload the page and try again', 'error');
+        return;
+      }
+      
+      if (!response?.text || response.text.trim().length < 20) {
+        showToast('No conversation found on this page', 'error');
+        return;
+      }
+      
+      // Create captured context
+      const context = {
+        id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
+        platform: platform,
+        url: tab.url,
+        title: tab.title || 'Untitled Chat',
+        content: response.text,
+        summary: response.text.slice(0, 200) + (response.text.length > 200 ? '...' : ''),
+        timestamp: Date.now()
+      };
+      
+      // Save to captured contexts
+      await loadData();
+      
+      // Remove existing capture of same URL if any
+      capturedContexts = capturedContexts.filter(c => c.url !== tab.url);
+      
+      // Add new capture at the top
+      capturedContexts = [context, ...capturedContexts].slice(0, 20);
+      await saveCapturedContexts();
+      
+      renderCapturedList();
+      showToast(`Captured from ${platform}!`, 'success');
+    });
+  } catch (error) {
+    console.error('Manual capture error:', error);
+    showToast('Capture failed', 'error');
   }
 }
 
