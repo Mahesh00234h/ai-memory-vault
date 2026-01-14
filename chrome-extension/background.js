@@ -121,14 +121,21 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
       return;
     }
     
-    // Create auto-captured context
+    // Create detailed structured context
+    const detailedContext = generateDetailedContext(convResponse.text, platform, tab.title);
+    
     const context = {
       id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
       platform: platform,
       url: tab.url,
-      title: tab.title || 'Untitled Chat',
-      content: convResponse.text,
-      summary: generateQuickSummary(convResponse.text),
+      title: detailedContext.topic || tab.title || 'Untitled Chat',
+      rawContent: convResponse.text,
+      summary: detailedContext.summary,
+      keyPoints: detailedContext.keyPoints,
+      techStack: detailedContext.techStack,
+      decisions: detailedContext.decisions,
+      openQuestions: detailedContext.openQuestions,
+      messageCount: detailedContext.messageCount,
       timestamp: Date.now()
     };
     
@@ -211,17 +218,219 @@ function detectAiPlatform(url) {
 }
 
 /**
- * Generate quick summary from conversation text
+ * Generate detailed structured context from conversation text
+ */
+function generateDetailedContext(text, platform, title) {
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  
+  // Identify conversation structure
+  const userMessages = [];
+  const aiMessages = [];
+  let currentSpeaker = null;
+  let currentMessage = [];
+  
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase().trim();
+    
+    // Detect speaker changes
+    if (lowerLine.startsWith('you:') || lowerLine.startsWith('user:') || lowerLine.startsWith('human:')) {
+      if (currentMessage.length > 0 && currentSpeaker) {
+        if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+        else aiMessages.push(currentMessage.join('\n'));
+      }
+      currentSpeaker = 'user';
+      currentMessage = [line.replace(/^(you|user|human):\s*/i, '')];
+    } else if (lowerLine.startsWith('assistant:') || lowerLine.startsWith('chatgpt:') || 
+               lowerLine.startsWith('claude:') || lowerLine.startsWith('gemini:') ||
+               lowerLine.startsWith('ai:') || lowerLine.startsWith('copilot:')) {
+      if (currentMessage.length > 0 && currentSpeaker) {
+        if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+        else aiMessages.push(currentMessage.join('\n'));
+      }
+      currentSpeaker = 'ai';
+      currentMessage = [line.replace(/^(assistant|chatgpt|claude|gemini|ai|copilot):\s*/i, '')];
+    } else if (currentSpeaker) {
+      currentMessage.push(line);
+    } else {
+      // If no speaker detected yet, try to infer from content
+      if (line.length > 50) {
+        currentSpeaker = 'ai';
+        currentMessage = [line];
+      } else {
+        currentSpeaker = 'user';
+        currentMessage = [line];
+      }
+    }
+  }
+  
+  // Push last message
+  if (currentMessage.length > 0 && currentSpeaker) {
+    if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+    else aiMessages.push(currentMessage.join('\n'));
+  }
+  
+  // Extract key information
+  const topic = extractTopic(userMessages, title);
+  const keyPoints = extractKeyPoints(aiMessages);
+  const techStack = extractTechStack(text);
+  const decisions = extractDecisions(aiMessages);
+  const openQuestions = extractOpenQuestions(userMessages.slice(-3));
+  
+  return {
+    topic,
+    summary: generateSummary(userMessages, aiMessages, topic),
+    keyPoints,
+    techStack,
+    decisions,
+    openQuestions,
+    messageCount: {
+      user: userMessages.length,
+      ai: aiMessages.length
+    }
+  };
+}
+
+/**
+ * Extract the main topic from user messages
+ */
+function extractTopic(userMessages, title) {
+  if (title && !title.toLowerCase().includes('new chat') && !title.toLowerCase().includes('untitled')) {
+    return title.replace(/^(claude|chatgpt|gemini|chat)\s*[-–—|:]\s*/i, '').trim();
+  }
+  
+  const firstMessage = userMessages[0] || '';
+  const words = firstMessage.split(/\s+/).slice(0, 15).join(' ');
+  return words.length > 10 ? words + (firstMessage.length > words.length ? '...' : '') : 'General Discussion';
+}
+
+/**
+ * Extract key points from AI responses
+ */
+function extractKeyPoints(aiMessages) {
+  const points = [];
+  const allText = aiMessages.join('\n');
+  
+  // Look for numbered lists, bullet points, headers
+  const patterns = [
+    /(?:^|\n)\s*(?:\d+\.|\*|-|•)\s*(.{20,100})/g,
+    /(?:^|\n)#{1,3}\s*(.{10,80})/g,
+    /(?:key|important|note|remember|crucial):\s*(.{20,150})/gi
+  ];
+  
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(allText)) !== null && points.length < 5) {
+      const point = match[1].trim();
+      if (point.length > 10 && !points.some(p => p.toLowerCase() === point.toLowerCase())) {
+        points.push(point);
+      }
+    }
+  }
+  
+  return points.slice(0, 5);
+}
+
+/**
+ * Extract tech stack mentions
+ */
+function extractTechStack(text) {
+  const techPatterns = [
+    /\b(react|vue|angular|svelte|next\.?js|nuxt|gatsby)\b/gi,
+    /\b(node\.?js|express|fastify|nest\.?js|deno|bun)\b/gi,
+    /\b(python|django|flask|fastapi)\b/gi,
+    /\b(typescript|javascript|rust|go|java|kotlin|swift)\b/gi,
+    /\b(postgresql|mysql|mongodb|redis|supabase|firebase)\b/gi,
+    /\b(tailwind|css|sass|styled-components)\b/gi,
+    /\b(docker|kubernetes|aws|gcp|azure|vercel|netlify)\b/gi,
+    /\b(graphql|rest\s*api|trpc)\b/gi
+  ];
+  
+  const found = new Set();
+  for (const pattern of techPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      found.add(match[1]);
+    }
+  }
+  
+  return [...found].slice(0, 10);
+}
+
+/**
+ * Extract decisions made in the conversation
+ */
+function extractDecisions(aiMessages) {
+  const decisions = [];
+  const decisionPatterns = [
+    /(?:we(?:'ll| will| should)|you should|let's|i(?:'ll| will) |recommend|suggest)\s+(.{20,100})/gi,
+    /(?:decision|approach|solution|plan):\s*(.{20,100})/gi
+  ];
+  
+  const allText = aiMessages.slice(-5).join('\n');
+  
+  for (const pattern of decisionPatterns) {
+    let match;
+    while ((match = pattern.exec(allText)) !== null && decisions.length < 3) {
+      const decision = match[1].trim().replace(/[.!?]$/, '');
+      if (decision.length > 15) {
+        decisions.push(decision);
+      }
+    }
+  }
+  
+  return decisions;
+}
+
+/**
+ * Extract open questions from recent messages
+ */
+function extractOpenQuestions(recentUserMessages) {
+  const questions = [];
+  const text = recentUserMessages.join('\n');
+  
+  const questionPattern = /([^.!?\n]*\?)/g;
+  let match;
+  while ((match = questionPattern.exec(text)) !== null && questions.length < 3) {
+    const q = match[1].trim();
+    if (q.length > 10 && q.length < 200) {
+      questions.push(q);
+    }
+  }
+  
+  return questions;
+}
+
+/**
+ * Generate a concise summary
+ */
+function generateSummary(userMessages, aiMessages, topic) {
+  const totalMessages = userMessages.length + aiMessages.length;
+  
+  if (totalMessages === 0) {
+    return 'Empty conversation';
+  }
+  
+  const lastUserMessage = userMessages[userMessages.length - 1] || '';
+  const lastUserSnippet = lastUserMessage.slice(0, 100).trim();
+  
+  let summary = `Discussion about "${topic}"`;
+  summary += ` with ${totalMessages} messages.`;
+  
+  if (lastUserSnippet) {
+    summary += ` Last topic: ${lastUserSnippet}${lastUserMessage.length > 100 ? '...' : ''}`;
+  }
+  
+  return summary;
+}
+
+/**
+ * Generate quick summary (for backwards compatibility)
  */
 function generateQuickSummary(text) {
-  // Take first 500 chars and find key points
   const truncated = text.slice(0, 2000);
-  
-  // Extract potential topics/keywords
   const lines = truncated.split('\n').filter(l => l.trim().length > 10);
   const firstFewLines = lines.slice(0, 5).join(' ');
   
-  // Create a summary
   if (firstFewLines.length > 200) {
     return firstFewLines.slice(0, 200) + '...';
   }

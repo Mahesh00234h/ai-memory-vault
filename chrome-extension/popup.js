@@ -316,6 +316,9 @@ function renderCapturedList() {
   elements.capturedList.innerHTML = sortedContexts.map(ctx => {
     const time = getRelativeTime(ctx.timestamp);
     const platformClass = ctx.platform.toLowerCase().replace(/\s+/g, '-');
+    const techPreview = ctx.techStack?.length > 0 ? ctx.techStack.slice(0, 3).join(', ') : '';
+    const keyPointsCount = ctx.keyPoints?.length || 0;
+    const msgCount = ctx.messageCount ? `${ctx.messageCount.user + ctx.messageCount.ai} msgs` : '';
     
     return `
       <div class="captured-card" data-id="${ctx.id}">
@@ -325,6 +328,13 @@ function renderCapturedList() {
         </div>
         <div class="captured-title">${escapeHtml(ctx.title || 'Untitled Chat')}</div>
         <div class="captured-summary">${escapeHtml(ctx.summary || 'No summary available')}</div>
+        ${techPreview || keyPointsCount || msgCount ? `
+          <div class="captured-meta">
+            ${techPreview ? `<span class="meta-tag tech">🛠️ ${techPreview}</span>` : ''}
+            ${keyPointsCount ? `<span class="meta-tag points">💡 ${keyPointsCount} points</span>` : ''}
+            ${msgCount ? `<span class="meta-tag msgs">💬 ${msgCount}</span>` : ''}
+          </div>
+        ` : ''}
         <div class="captured-actions">
           <button class="use-btn" title="Use this context">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -433,7 +443,57 @@ function showContextDetail(id) {
   elements.contextPlatform.textContent = ctx.platform;
   elements.contextPlatform.className = 'platform-badge ' + ctx.platform.toLowerCase().replace(/\s+/g, '-');
   elements.contextTime.textContent = getRelativeTime(ctx.timestamp);
-  elements.contextContent.value = ctx.content;
+  
+  // Build detailed content view
+  let detailContent = '';
+  
+  // Summary
+  if (ctx.summary) {
+    detailContent += `📋 SUMMARY\n${ctx.summary}\n\n`;
+  }
+  
+  // Key Points
+  if (ctx.keyPoints && ctx.keyPoints.length > 0) {
+    detailContent += `💡 KEY POINTS\n`;
+    ctx.keyPoints.forEach((point, i) => {
+      detailContent += `${i + 1}. ${point}\n`;
+    });
+    detailContent += '\n';
+  }
+  
+  // Tech Stack
+  if (ctx.techStack && ctx.techStack.length > 0) {
+    detailContent += `🛠️ TECH STACK\n${ctx.techStack.join(', ')}\n\n`;
+  }
+  
+  // Decisions
+  if (ctx.decisions && ctx.decisions.length > 0) {
+    detailContent += `✅ DECISIONS MADE\n`;
+    ctx.decisions.forEach((d, i) => {
+      detailContent += `• ${d}\n`;
+    });
+    detailContent += '\n';
+  }
+  
+  // Open Questions
+  if (ctx.openQuestions && ctx.openQuestions.length > 0) {
+    detailContent += `❓ OPEN QUESTIONS\n`;
+    ctx.openQuestions.forEach((q, i) => {
+      detailContent += `• ${q}\n`;
+    });
+    detailContent += '\n';
+  }
+  
+  // Message count
+  if (ctx.messageCount) {
+    detailContent += `💬 Messages: ${ctx.messageCount.user} user / ${ctx.messageCount.ai} AI\n\n`;
+  }
+  
+  // Raw content (collapsed or truncated)
+  detailContent += `─────────────────────────\n📜 RAW CONVERSATION\n─────────────────────────\n`;
+  detailContent += ctx.rawContent || ctx.content || 'No raw content available';
+  
+  elements.contextContent.value = detailContent;
   
   showView('contextDetail');
 }
@@ -623,15 +683,47 @@ function handleDeleteContext() {
 }
 
 function formatCapturedContext(ctx) {
-  return `Continue from this previous conversation context:
-
-Platform: ${ctx.platform}
-Captured: ${new Date(ctx.timestamp).toLocaleString()}
-
-Previous conversation:
-${ctx.content}
-
-Do not re-explain or ask onboarding questions. Continue from where we left off.`;
+  let prompt = `Continue from this previous conversation context:\n\n`;
+  prompt += `Platform: ${ctx.platform}\n`;
+  prompt += `Topic: ${ctx.title}\n`;
+  prompt += `Captured: ${new Date(ctx.timestamp).toLocaleString()}\n\n`;
+  
+  // Add structured context if available
+  if (ctx.summary) {
+    prompt += `Summary: ${ctx.summary}\n\n`;
+  }
+  
+  if (ctx.keyPoints && ctx.keyPoints.length > 0) {
+    prompt += `Key Points from Previous Discussion:\n`;
+    ctx.keyPoints.forEach((point, i) => {
+      prompt += `${i + 1}. ${point}\n`;
+    });
+    prompt += '\n';
+  }
+  
+  if (ctx.techStack && ctx.techStack.length > 0) {
+    prompt += `Tech Stack: ${ctx.techStack.join(', ')}\n\n`;
+  }
+  
+  if (ctx.decisions && ctx.decisions.length > 0) {
+    prompt += `Decisions Made:\n`;
+    ctx.decisions.forEach(d => {
+      prompt += `• ${d}\n`;
+    });
+    prompt += '\n';
+  }
+  
+  if (ctx.openQuestions && ctx.openQuestions.length > 0) {
+    prompt += `Open Questions to Address:\n`;
+    ctx.openQuestions.forEach(q => {
+      prompt += `• ${q}\n`;
+    });
+    prompt += '\n';
+  }
+  
+  prompt += `Do not re-explain basics or ask onboarding questions. Continue from where we left off.`;
+  
+  return prompt;
 }
 
 async function injectOrCopy(prompt) {
@@ -710,14 +802,22 @@ async function handleManualCapture() {
         return;
       }
       
-      // Create captured context
+      // Generate detailed context from raw text
+      const detailedContext = generateDetailedContextFromText(response.text, platform, tab.title);
+      
+      // Create captured context with detailed analysis
       const context = {
         id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
         platform: platform,
         url: tab.url,
-        title: tab.title || 'Untitled Chat',
-        content: response.text,
-        summary: response.text.slice(0, 200) + (response.text.length > 200 ? '...' : ''),
+        title: detailedContext.topic || tab.title || 'Untitled Chat',
+        rawContent: response.text,
+        summary: detailedContext.summary,
+        keyPoints: detailedContext.keyPoints,
+        techStack: detailedContext.techStack,
+        decisions: detailedContext.decisions,
+        openQuestions: detailedContext.openQuestions,
+        messageCount: detailedContext.messageCount,
         timestamp: Date.now()
       };
       
@@ -862,4 +962,193 @@ function getRelativeTime(timestamp) {
   if (days < 7) return `${days}d ago`;
   
   return new Date(timestamp).toLocaleDateString();
+}
+
+// ===== CONTEXT ANALYSIS FUNCTIONS =====
+
+/**
+ * Generate detailed structured context from conversation text (for manual capture)
+ */
+function generateDetailedContextFromText(text, platform, title) {
+  const lines = text.split('\n').filter(l => l.trim().length > 0);
+  
+  // Identify conversation structure
+  const userMessages = [];
+  const aiMessages = [];
+  let currentSpeaker = null;
+  let currentMessage = [];
+  
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase().trim();
+    
+    // Detect speaker changes
+    if (lowerLine.startsWith('you:') || lowerLine.startsWith('user:') || lowerLine.startsWith('human:')) {
+      if (currentMessage.length > 0 && currentSpeaker) {
+        if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+        else aiMessages.push(currentMessage.join('\n'));
+      }
+      currentSpeaker = 'user';
+      currentMessage = [line.replace(/^(you|user|human):\s*/i, '')];
+    } else if (lowerLine.startsWith('assistant:') || lowerLine.startsWith('chatgpt:') || 
+               lowerLine.startsWith('claude:') || lowerLine.startsWith('gemini:') ||
+               lowerLine.startsWith('ai:') || lowerLine.startsWith('copilot:')) {
+      if (currentMessage.length > 0 && currentSpeaker) {
+        if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+        else aiMessages.push(currentMessage.join('\n'));
+      }
+      currentSpeaker = 'ai';
+      currentMessage = [line.replace(/^(assistant|chatgpt|claude|gemini|ai|copilot):\s*/i, '')];
+    } else if (currentSpeaker) {
+      currentMessage.push(line);
+    } else {
+      // If no speaker detected yet, try to infer from content
+      if (line.length > 50) {
+        currentSpeaker = 'ai';
+        currentMessage = [line];
+      } else {
+        currentSpeaker = 'user';
+        currentMessage = [line];
+      }
+    }
+  }
+  
+  // Push last message
+  if (currentMessage.length > 0 && currentSpeaker) {
+    if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
+    else aiMessages.push(currentMessage.join('\n'));
+  }
+  
+  // Extract key information
+  const topic = extractTopicFromMessages(userMessages, title);
+  const keyPoints = extractKeyPointsFromMessages(aiMessages);
+  const techStack = extractTechStackFromText(text);
+  const decisions = extractDecisionsFromMessages(aiMessages);
+  const openQuestions = extractOpenQuestionsFromMessages(userMessages.slice(-3));
+  
+  return {
+    topic,
+    summary: generateSummaryFromMessages(userMessages, aiMessages, topic),
+    keyPoints,
+    techStack,
+    decisions,
+    openQuestions,
+    messageCount: {
+      user: userMessages.length,
+      ai: aiMessages.length
+    }
+  };
+}
+
+function extractTopicFromMessages(userMessages, title) {
+  if (title && !title.toLowerCase().includes('new chat') && !title.toLowerCase().includes('untitled')) {
+    return title.replace(/^(claude|chatgpt|gemini|chat)\s*[-–—|:]\s*/i, '').trim();
+  }
+  
+  const firstMessage = userMessages[0] || '';
+  const words = firstMessage.split(/\s+/).slice(0, 15).join(' ');
+  return words.length > 10 ? words + (firstMessage.length > words.length ? '...' : '') : 'General Discussion';
+}
+
+function extractKeyPointsFromMessages(aiMessages) {
+  const points = [];
+  const allText = aiMessages.join('\n');
+  
+  const patterns = [
+    /(?:^|\n)\s*(?:\d+\.|\*|-|•)\s*(.{20,100})/g,
+    /(?:^|\n)#{1,3}\s*(.{10,80})/g,
+    /(?:key|important|note|remember|crucial):\s*(.{20,150})/gi
+  ];
+  
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(allText)) !== null && points.length < 5) {
+      const point = match[1].trim();
+      if (point.length > 10 && !points.some(p => p.toLowerCase() === point.toLowerCase())) {
+        points.push(point);
+      }
+    }
+  }
+  
+  return points.slice(0, 5);
+}
+
+function extractTechStackFromText(text) {
+  const techPatterns = [
+    /\b(react|vue|angular|svelte|next\.?js|nuxt|gatsby)\b/gi,
+    /\b(node\.?js|express|fastify|nest\.?js|deno|bun)\b/gi,
+    /\b(python|django|flask|fastapi)\b/gi,
+    /\b(typescript|javascript|rust|go|java|kotlin|swift)\b/gi,
+    /\b(postgresql|mysql|mongodb|redis|supabase|firebase)\b/gi,
+    /\b(tailwind|css|sass|styled-components)\b/gi,
+    /\b(docker|kubernetes|aws|gcp|azure|vercel|netlify)\b/gi,
+    /\b(graphql|rest\s*api|trpc)\b/gi
+  ];
+  
+  const found = new Set();
+  for (const pattern of techPatterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      found.add(match[1]);
+    }
+  }
+  
+  return [...found].slice(0, 10);
+}
+
+function extractDecisionsFromMessages(aiMessages) {
+  const decisions = [];
+  const decisionPatterns = [
+    /(?:we(?:'ll| will| should)|you should|let's|i(?:'ll| will) |recommend|suggest)\s+(.{20,100})/gi,
+    /(?:decision|approach|solution|plan):\s*(.{20,100})/gi
+  ];
+  
+  const allText = aiMessages.slice(-5).join('\n');
+  
+  for (const pattern of decisionPatterns) {
+    let match;
+    while ((match = pattern.exec(allText)) !== null && decisions.length < 3) {
+      const decision = match[1].trim().replace(/[.!?]$/, '');
+      if (decision.length > 15) {
+        decisions.push(decision);
+      }
+    }
+  }
+  
+  return decisions;
+}
+
+function extractOpenQuestionsFromMessages(recentUserMessages) {
+  const questions = [];
+  const text = recentUserMessages.join('\n');
+  
+  const questionPattern = /([^.!?\n]*\?)/g;
+  let match;
+  while ((match = questionPattern.exec(text)) !== null && questions.length < 3) {
+    const q = match[1].trim();
+    if (q.length > 10 && q.length < 200) {
+      questions.push(q);
+    }
+  }
+  
+  return questions;
+}
+
+function generateSummaryFromMessages(userMessages, aiMessages, topic) {
+  const totalMessages = userMessages.length + aiMessages.length;
+  
+  if (totalMessages === 0) {
+    return 'Empty conversation';
+  }
+  
+  const lastUserMessage = userMessages[userMessages.length - 1] || '';
+  const lastUserSnippet = lastUserMessage.slice(0, 100).trim();
+  
+  let summary = `Discussion about "${topic}"`;
+  summary += ` with ${totalMessages} messages.`;
+  
+  if (lastUserSnippet) {
+    summary += ` Last topic: ${lastUserSnippet}${lastUserMessage.length > 100 ? '...' : ''}`;
+  }
+  
+  return summary;
 }
