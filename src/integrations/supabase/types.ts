@@ -14,7 +14,227 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      captured_contexts: {
+        Row: {
+          captured_at: string
+          decisions: Json | null
+          id: string
+          key_points: Json | null
+          message_count: number | null
+          open_questions: Json | null
+          platform: string | null
+          raw_content: string | null
+          summary: string | null
+          team_id: string | null
+          tech_stack: Json | null
+          title: string
+          topic: string | null
+          updated_at: string
+          url: string
+          user_id: string
+        }
+        Insert: {
+          captured_at?: string
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          message_count?: number | null
+          open_questions?: Json | null
+          platform?: string | null
+          raw_content?: string | null
+          summary?: string | null
+          team_id?: string | null
+          tech_stack?: Json | null
+          title: string
+          topic?: string | null
+          updated_at?: string
+          url: string
+          user_id: string
+        }
+        Update: {
+          captured_at?: string
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          message_count?: number | null
+          open_questions?: Json | null
+          platform?: string | null
+          raw_content?: string | null
+          summary?: string | null
+          team_id?: string | null
+          tech_stack?: Json | null
+          title?: string
+          topic?: string | null
+          updated_at?: string
+          url?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "captured_contexts_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captured_contexts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "extension_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      extension_users: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      team_members: {
+        Row: {
+          id: string
+          joined_at: string
+          team_id: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          team_id: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          team_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_members_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "extension_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      team_summaries: {
+        Row: {
+          context_ids: Json | null
+          created_at: string
+          created_by: string | null
+          decisions: Json | null
+          id: string
+          key_points: Json | null
+          open_questions: Json | null
+          summary: string
+          team_id: string
+          tech_stack: Json | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          context_ids?: Json | null
+          created_at?: string
+          created_by?: string | null
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          open_questions?: Json | null
+          summary: string
+          team_id: string
+          tech_stack?: Json | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          context_ids?: Json | null
+          created_at?: string
+          created_by?: string | null
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          open_questions?: Json | null
+          summary?: string
+          team_id?: string
+          tech_stack?: Json | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "team_summaries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "extension_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "team_summaries_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      teams: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          invite_code: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          invite_code?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          invite_code?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teams_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "extension_users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

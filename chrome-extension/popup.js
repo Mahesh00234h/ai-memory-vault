@@ -1,28 +1,72 @@
 /**
  * AI Context Bridge - Popup Script
- * Handles all UI interactions and storage management
+ * Handles all UI interactions, storage management, and cloud sync
  */
 
 // ===== STATE =====
 let projects = [];
 let activeProjectId = null;
 let capturedContexts = [];
-let currentView = 'captured'; // Default to captured view
+let currentView = 'captured';
 let selectedContextId = null;
+let currentUser = null;
+let currentTeam = null;
+let teamContexts = [];
+let teamSummaries = [];
+let isOnline = navigator.onLine;
+let lastSyncTime = null;
 
 // ===== DOM ELEMENTS =====
 const elements = {
+  // Onboarding
+  onboardingView: document.getElementById('onboardingView'),
+  onboardingForm: document.getElementById('onboardingForm'),
+  userName: document.getElementById('userName'),
+  mainApp: document.getElementById('mainApp'),
+  userNameDisplay: document.getElementById('userNameDisplay'),
+  syncStatusBtn: document.getElementById('syncStatusBtn'),
+  
   // Views
   projectListView: document.getElementById('projectListView'),
   projectFormView: document.getElementById('projectFormView'),
   captureView: document.getElementById('captureView'),
   capturedView: document.getElementById('capturedView'),
   contextDetailView: document.getElementById('contextDetailView'),
+  teamView: document.getElementById('teamView'),
+  teamFormView: document.getElementById('teamFormView'),
   
   // Tabs
   tabProjects: document.getElementById('tabProjects'),
   tabCaptured: document.getElementById('tabCaptured'),
+  tabTeam: document.getElementById('tabTeam'),
   capturedCount: document.getElementById('capturedCount'),
+  teamBadge: document.getElementById('teamBadge'),
+  
+  // Team views
+  noTeamView: document.getElementById('noTeamView'),
+  teamActiveView: document.getElementById('teamActiveView'),
+  createTeamBtn: document.getElementById('createTeamBtn'),
+  joinTeamBtn: document.getElementById('joinTeamBtn'),
+  teamNameDisplay: document.getElementById('teamNameDisplay'),
+  teamMemberCount: document.getElementById('teamMemberCount'),
+  shareTeamBtn: document.getElementById('shareTeamBtn'),
+  leaveTeamBtn: document.getElementById('leaveTeamBtn'),
+  teamContextsTab: document.getElementById('teamContextsTab'),
+  teamSummaryTab: document.getElementById('teamSummaryTab'),
+  teamContextsList: document.getElementById('teamContextsList'),
+  teamSummariesList: document.getElementById('teamSummariesList'),
+  createSummaryBtn: document.getElementById('createSummaryBtn'),
+  
+  // Team form
+  teamFormBackBtn: document.getElementById('teamFormBackBtn'),
+  teamFormTitle: document.getElementById('teamFormTitle'),
+  teamForm: document.getElementById('teamForm'),
+  createTeamFields: document.getElementById('createTeamFields'),
+  joinTeamFields: document.getElementById('joinTeamFields'),
+  teamName: document.getElementById('teamName'),
+  inviteCode: document.getElementById('inviteCode'),
+  teamCancelBtn: document.getElementById('teamCancelBtn'),
+  teamSubmitBtn: document.getElementById('teamSubmitBtn'),
   
   // Project List
   projectList: document.getElementById('projectList'),
@@ -65,7 +109,9 @@ const elements = {
   contextDetailTitle: document.getElementById('contextDetailTitle'),
   contextPlatform: document.getElementById('contextPlatform'),
   contextTime: document.getElementById('contextTime'),
+  contextAuthor: document.getElementById('contextAuthor'),
   contextContent: document.getElementById('contextContent'),
+  shareToTeamBtn: document.getElementById('shareToTeamBtn'),
   injectContextBtn: document.getElementById('injectContextBtn'),
   copyContextBtn: document.getElementById('copyContextBtn'),
   deleteContextBtn: document.getElementById('deleteContextBtn'),
@@ -82,18 +128,90 @@ const elements = {
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', async () => {
+  await checkOnboardingStatus();
+});
+
+async function checkOnboardingStatus() {
+  try {
+    const result = await chrome.storage.local.get(['userId', 'userName', 'teamId']);
+    
+    if (result.userId && result.userName) {
+      // User exists, check if still valid in cloud
+      currentUser = { id: result.userId, name: result.userName };
+      
+      if (result.teamId) {
+        // Load team info
+        const teams = await window.API.getUserTeams(result.userId);
+        currentTeam = teams.find(t => t.id === result.teamId) || null;
+      }
+      
+      showMainApp();
+    } else {
+      // First time user
+      showOnboarding();
+    }
+  } catch (error) {
+    console.error('Error checking onboarding status:', error);
+    showOnboarding();
+  }
+}
+
+function showOnboarding() {
+  elements.onboardingView.classList.remove('hidden');
+  elements.mainApp.classList.add('hidden');
+  
+  elements.onboardingForm.addEventListener('submit', handleOnboardingSubmit);
+}
+
+async function handleOnboardingSubmit(e) {
+  e.preventDefault();
+  
+  const name = elements.userName.value.trim();
+  if (!name) return;
+  
+  try {
+    showToast('Setting up...', 'info');
+    
+    // Create user in cloud
+    const user = await window.API.createUser(name);
+    currentUser = user;
+    
+    // Save locally
+    await chrome.storage.local.set({
+      userId: user.id,
+      userName: user.name
+    });
+    
+    showToast(`Welcome, ${name}!`, 'success');
+    showMainApp();
+  } catch (error) {
+    console.error('Onboarding error:', error);
+    showToast('Setup failed. Please try again.', 'error');
+  }
+}
+
+async function showMainApp() {
+  elements.onboardingView.classList.add('hidden');
+  elements.mainApp.classList.remove('hidden');
+  
+  // Display user name
+  if (currentUser && elements.userNameDisplay) {
+    elements.userNameDisplay.textContent = currentUser.name;
+  }
+  
   await loadData();
   renderProjectList();
   renderCapturedList();
+  updateTeamView();
   setupEventListeners();
   updateCapturedBadge();
-});
+  
+  // Sync with cloud
+  syncWithCloud();
+}
 
 // ===== STORAGE FUNCTIONS =====
 
-/**
- * Load all data from chrome.storage.local
- */
 async function loadData() {
   try {
     const result = await chrome.storage.local.get(['projects', 'activeProjectId', 'capturedContexts', 'settings']);
@@ -101,7 +219,6 @@ async function loadData() {
     activeProjectId = result.activeProjectId || null;
     capturedContexts = result.capturedContexts || [];
     
-    // Set auto-capture toggle
     if (elements.autoCaptureToggle) {
       elements.autoCaptureToggle.checked = result.settings?.autoCapture !== false;
     }
@@ -113,9 +230,6 @@ async function loadData() {
   }
 }
 
-/**
- * Save projects to chrome.storage.local
- */
 async function saveProjects() {
   try {
     await chrome.storage.local.set({ projects, activeProjectId });
@@ -125,21 +239,20 @@ async function saveProjects() {
   }
 }
 
-/**
- * Save captured contexts
- */
 async function saveCapturedContexts() {
   try {
     await chrome.storage.local.set({ capturedContexts });
     updateCapturedBadge();
+    
+    // Sync to cloud if online
+    if (isOnline && currentUser) {
+      debouncedSync();
+    }
   } catch (error) {
     console.error('Error saving contexts:', error);
   }
 }
 
-/**
- * Save settings
- */
 async function saveSettings(settings) {
   try {
     const result = await chrome.storage.local.get(['settings']);
@@ -148,6 +261,46 @@ async function saveSettings(settings) {
     });
   } catch (error) {
     console.error('Error saving settings:', error);
+  }
+}
+
+// ===== CLOUD SYNC =====
+
+let syncTimeout = null;
+function debouncedSync() {
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(syncWithCloud, 5000);
+}
+
+async function syncWithCloud() {
+  if (!currentUser || !isOnline) return;
+  
+  try {
+    elements.syncStatusBtn?.classList.add('syncing');
+    
+    // Sync contexts to cloud
+    const results = await window.API.syncContextsToCloud(currentUser.id, capturedContexts);
+    
+    // Update local contexts with cloud IDs
+    for (const result of results) {
+      if (result.cloudId) {
+        const ctx = capturedContexts.find(c => c.id === result.id);
+        if (ctx) ctx.cloudId = result.cloudId;
+      }
+    }
+    
+    await chrome.storage.local.set({ capturedContexts });
+    lastSyncTime = Date.now();
+    
+    elements.syncStatusBtn?.classList.remove('syncing');
+    elements.syncStatusBtn?.classList.add('synced');
+    
+    setTimeout(() => {
+      elements.syncStatusBtn?.classList.remove('synced');
+    }, 2000);
+  } catch (error) {
+    console.error('Sync error:', error);
+    elements.syncStatusBtn?.classList.remove('syncing');
   }
 }
 
@@ -239,6 +392,13 @@ function generateContextPrompt(project) {
 // ===== CAPTURED CONTEXT FUNCTIONS =====
 
 function deleteCapturedContext(id) {
+  const ctx = capturedContexts.find(c => c.id === id);
+  
+  // Delete from cloud if has cloudId
+  if (ctx?.cloudId && currentUser) {
+    window.API.deleteContext(ctx.cloudId).catch(console.error);
+  }
+  
   capturedContexts = capturedContexts.filter(c => c.id !== id);
   saveCapturedContexts();
 }
@@ -257,17 +417,209 @@ function updateCapturedBadge() {
   }
 }
 
-// ===== RENDER FUNCTIONS =====
+// ===== TEAM FUNCTIONS =====
 
-function renderProjectList() {
-  if (projects.length === 0) {
-    elements.projectList.innerHTML = '';
-    elements.emptyState.classList.remove('hidden');
-    elements.quickActions.classList.add('hidden');
+async function updateTeamView() {
+  if (!currentTeam) {
+    elements.noTeamView?.classList.remove('hidden');
+    elements.teamActiveView?.classList.add('hidden');
+    elements.teamBadge?.classList.add('hidden');
     return;
   }
   
-  elements.emptyState.classList.add('hidden');
+  elements.noTeamView?.classList.add('hidden');
+  elements.teamActiveView?.classList.remove('hidden');
+  
+  // Update team info
+  elements.teamNameDisplay.textContent = currentTeam.name;
+  
+  // Load team members
+  const members = await window.API.getTeamMembers(currentTeam.id);
+  elements.teamMemberCount.textContent = `${members.length} member${members.length !== 1 ? 's' : ''}`;
+  
+  // Load team contexts
+  teamContexts = await window.API.getTeamContexts(currentTeam.id);
+  renderTeamContexts();
+  
+  // Update badge
+  if (teamContexts.length > 0) {
+    elements.teamBadge.textContent = teamContexts.length;
+    elements.teamBadge.classList.remove('hidden');
+  } else {
+    elements.teamBadge.classList.add('hidden');
+  }
+}
+
+function renderTeamContexts() {
+  if (!elements.teamContextsList) return;
+  
+  if (teamContexts.length === 0) {
+    elements.teamContextsList.innerHTML = `
+      <div class="empty-state-small">
+        <p>No shared contexts yet. Share your captures with the team!</p>
+      </div>
+    `;
+    return;
+  }
+  
+  elements.teamContextsList.innerHTML = teamContexts.map(ctx => {
+    const time = getRelativeTime(new Date(ctx.captured_at).getTime());
+    const platformClass = (ctx.platform || 'unknown').toLowerCase().replace(/\s+/g, '-');
+    const authorName = ctx.extension_users?.name || 'Unknown';
+    
+    return `
+      <div class="captured-card team-context" data-id="${ctx.id}">
+        <div class="captured-header">
+          <span class="platform-badge ${platformClass}">${ctx.platform || 'Unknown'}</span>
+          <span class="captured-time">${time}</span>
+        </div>
+        <div class="captured-title">${escapeHtml(ctx.title || 'Untitled Chat')}</div>
+        <div class="captured-summary">${escapeHtml(ctx.summary || 'No summary')}</div>
+        <div class="captured-meta">
+          <span class="meta-tag author">👤 ${escapeHtml(authorName)}</span>
+        </div>
+        <div class="captured-actions">
+          <button class="use-btn" title="Use this context">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            Use
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function handleCreateTeam() {
+  elements.teamFormTitle.textContent = 'Create Team';
+  elements.createTeamFields.classList.remove('hidden');
+  elements.joinTeamFields.classList.add('hidden');
+  elements.teamSubmitBtn.textContent = 'Create Team';
+  elements.teamName.value = '';
+  showView('teamForm');
+}
+
+async function handleJoinTeam() {
+  elements.teamFormTitle.textContent = 'Join Team';
+  elements.createTeamFields.classList.add('hidden');
+  elements.joinTeamFields.classList.remove('hidden');
+  elements.teamSubmitBtn.textContent = 'Join Team';
+  elements.inviteCode.value = '';
+  showView('teamForm');
+}
+
+async function handleTeamFormSubmit(e) {
+  e.preventDefault();
+  
+  if (!currentUser) return;
+  
+  const isCreate = !elements.createTeamFields.classList.contains('hidden');
+  
+  try {
+    if (isCreate) {
+      const name = elements.teamName.value.trim();
+      if (!name) {
+        showToast('Enter a team name', 'error');
+        return;
+      }
+      
+      showToast('Creating team...', 'info');
+      currentTeam = await window.API.createTeam(name, currentUser.id);
+      await chrome.storage.local.set({ teamId: currentTeam.id });
+      showToast('Team created!', 'success');
+    } else {
+      const code = elements.inviteCode.value.trim();
+      if (!code) {
+        showToast('Enter an invite code', 'error');
+        return;
+      }
+      
+      showToast('Joining team...', 'info');
+      currentTeam = await window.API.joinTeam(code, currentUser.id);
+      await chrome.storage.local.set({ teamId: currentTeam.id });
+      showToast('Joined team!', 'success');
+    }
+    
+    updateTeamView();
+    showView('team');
+  } catch (error) {
+    console.error('Team error:', error);
+    showToast(error.message || 'Failed', 'error');
+  }
+}
+
+async function handleShareInvite() {
+  if (!currentTeam) return;
+  
+  const inviteCode = currentTeam.invite_code;
+  await copyToClipboard(inviteCode);
+  showToast('Invite code copied!', 'success');
+}
+
+async function handleLeaveTeam() {
+  if (!currentTeam || !currentUser) return;
+  
+  if (!confirm('Leave this team?')) return;
+  
+  try {
+    await window.API.leaveTeam(currentTeam.id, currentUser.id);
+    currentTeam = null;
+    await chrome.storage.local.remove('teamId');
+    updateTeamView();
+    showToast('Left team', 'success');
+  } catch (error) {
+    showToast('Failed to leave team', 'error');
+  }
+}
+
+async function handleShareToTeam() {
+  if (!currentTeam || !selectedContextId) {
+    showToast('Join a team first', 'error');
+    return;
+  }
+  
+  const ctx = getCapturedContext(selectedContextId);
+  if (!ctx) return;
+  
+  try {
+    // Save to cloud with team_id
+    await window.API.saveContext({
+      user_id: currentUser.id,
+      team_id: currentTeam.id,
+      url: ctx.url,
+      title: ctx.title,
+      topic: ctx.topic,
+      summary: ctx.summary,
+      key_points: ctx.keyPoints || [],
+      tech_stack: ctx.techStack || [],
+      decisions: ctx.decisions || [],
+      open_questions: ctx.openQuestions || [],
+      raw_content: ctx.rawContent,
+      message_count: ctx.messageCount?.user + ctx.messageCount?.ai || 0,
+      platform: ctx.platform
+    });
+    
+    showToast('Shared to team!', 'success');
+    updateTeamView();
+  } catch (error) {
+    showToast('Failed to share', 'error');
+  }
+}
+
+// ===== RENDER FUNCTIONS =====
+
+function renderProjectList() {
+  if (!elements.projectList) return;
+  
+  if (projects.length === 0) {
+    elements.projectList.innerHTML = '';
+    elements.emptyState?.classList.remove('hidden');
+    elements.quickActions?.classList.add('hidden');
+    return;
+  }
+  
+  elements.emptyState?.classList.add('hidden');
   
   const sortedProjects = [...projects].sort((a, b) => b.updated - a.updated);
   
@@ -303,13 +655,15 @@ function renderProjectList() {
 }
 
 function renderCapturedList() {
+  if (!elements.capturedList) return;
+  
   if (capturedContexts.length === 0) {
     elements.capturedList.innerHTML = '';
-    elements.capturedEmptyState.classList.remove('hidden');
+    elements.capturedEmptyState?.classList.remove('hidden');
     return;
   }
   
-  elements.capturedEmptyState.classList.add('hidden');
+  elements.capturedEmptyState?.classList.add('hidden');
   
   const sortedContexts = [...capturedContexts].sort((a, b) => b.timestamp - a.timestamp);
   
@@ -319,12 +673,13 @@ function renderCapturedList() {
     const techPreview = ctx.techStack?.length > 0 ? ctx.techStack.slice(0, 3).join(', ') : '';
     const keyPointsCount = ctx.keyPoints?.length || 0;
     const msgCount = ctx.messageCount ? `${ctx.messageCount.user + ctx.messageCount.ai} msgs` : '';
+    const syncIcon = ctx.cloudId ? '☁️' : '💾';
     
     return `
       <div class="captured-card" data-id="${ctx.id}">
         <div class="captured-header">
           <span class="platform-badge ${platformClass}">${ctx.platform}</span>
-          <span class="captured-time">${time}</span>
+          <span class="captured-time">${syncIcon} ${time}</span>
         </div>
         <div class="captured-title">${escapeHtml(ctx.title || 'Untitled Chat')}</div>
         <div class="captured-summary">${escapeHtml(ctx.summary || 'No summary available')}</div>
@@ -358,9 +713,9 @@ function renderCapturedList() {
 function updateQuickActions() {
   const hasActive = activeProjectId && projects.length > 0;
   if (hasActive && currentView === 'list') {
-    elements.quickActions.classList.remove('hidden');
+    elements.quickActions?.classList.remove('hidden');
   } else {
-    elements.quickActions.classList.add('hidden');
+    elements.quickActions?.classList.add('hidden');
   }
 }
 
@@ -369,31 +724,50 @@ function updateQuickActions() {
 function showView(view) {
   currentView = view;
   
-  elements.projectListView.classList.remove('active');
-  elements.projectFormView.classList.remove('active');
-  elements.captureView.classList.remove('active');
-  elements.capturedView.classList.remove('active');
-  elements.contextDetailView.classList.remove('active');
+  // Hide all views
+  const allViews = [
+    elements.projectListView,
+    elements.projectFormView,
+    elements.captureView,
+    elements.capturedView,
+    elements.contextDetailView,
+    elements.teamView,
+    elements.teamFormView
+  ];
+  
+  allViews.forEach(v => v?.classList.remove('active'));
+  
+  // Reset tab states
+  elements.tabProjects?.classList.remove('active');
+  elements.tabCaptured?.classList.remove('active');
+  elements.tabTeam?.classList.remove('active');
   
   switch (view) {
     case 'list':
-      elements.projectListView.classList.add('active');
-      elements.tabProjects.classList.add('active');
-      elements.tabCaptured.classList.remove('active');
+      elements.projectListView?.classList.add('active');
+      elements.tabProjects?.classList.add('active');
       break;
     case 'captured':
-      elements.capturedView.classList.add('active');
-      elements.tabCaptured.classList.add('active');
-      elements.tabProjects.classList.remove('active');
+      elements.capturedView?.classList.add('active');
+      elements.tabCaptured?.classList.add('active');
+      break;
+    case 'team':
+      elements.teamView?.classList.add('active');
+      elements.tabTeam?.classList.add('active');
+      updateTeamView();
+      break;
+    case 'teamForm':
+      elements.teamFormView?.classList.add('active');
+      elements.tabTeam?.classList.add('active');
       break;
     case 'form':
-      elements.projectFormView.classList.add('active');
+      elements.projectFormView?.classList.add('active');
       break;
     case 'capture':
-      elements.captureView.classList.add('active');
+      elements.captureView?.classList.add('active');
       break;
     case 'contextDetail':
-      elements.contextDetailView.classList.add('active');
+      elements.contextDetailView?.classList.add('active');
       break;
   }
   
@@ -429,69 +803,85 @@ function showCaptureView() {
     return;
   }
   
-  elements.capturedContent.classList.add('hidden');
-  elements.capturedText.value = '';
+  elements.capturedContent?.classList.add('hidden');
+  if (elements.capturedText) elements.capturedText.value = '';
   showView('capture');
 }
 
-function showContextDetail(id) {
-  const ctx = getCapturedContext(id);
+function showContextDetail(id, isTeamContext = false) {
+  const ctx = isTeamContext 
+    ? teamContexts.find(c => c.id === id)
+    : getCapturedContext(id);
+    
   if (!ctx) return;
   
   selectedContextId = id;
   elements.contextDetailTitle.textContent = ctx.title || 'Captured Context';
   elements.contextPlatform.textContent = ctx.platform;
-  elements.contextPlatform.className = 'platform-badge ' + ctx.platform.toLowerCase().replace(/\s+/g, '-');
-  elements.contextTime.textContent = getRelativeTime(ctx.timestamp);
+  elements.contextPlatform.className = 'platform-badge ' + (ctx.platform || 'unknown').toLowerCase().replace(/\s+/g, '-');
+  
+  const timestamp = isTeamContext ? new Date(ctx.captured_at).getTime() : ctx.timestamp;
+  elements.contextTime.textContent = getRelativeTime(timestamp);
+  
+  // Show author for team contexts
+  if (isTeamContext && ctx.extension_users?.name) {
+    elements.contextAuthor.textContent = `by ${ctx.extension_users.name}`;
+    elements.contextAuthor.classList.remove('hidden');
+  } else {
+    elements.contextAuthor.classList.add('hidden');
+  }
+  
+  // Show/hide share button based on team status
+  if (currentTeam && !isTeamContext) {
+    elements.shareToTeamBtn?.classList.remove('hidden');
+  } else {
+    elements.shareToTeamBtn?.classList.add('hidden');
+  }
   
   // Build detailed content view
   let detailContent = '';
   
-  // Summary
-  if (ctx.summary) {
-    detailContent += `📋 SUMMARY\n${ctx.summary}\n\n`;
+  const summary = isTeamContext ? ctx.summary : ctx.summary;
+  const keyPoints = isTeamContext ? ctx.key_points : ctx.keyPoints;
+  const techStack = isTeamContext ? ctx.tech_stack : ctx.techStack;
+  const decisions = isTeamContext ? ctx.decisions : ctx.decisions;
+  const openQuestions = isTeamContext ? ctx.open_questions : ctx.openQuestions;
+  const rawContent = isTeamContext ? ctx.raw_content : ctx.rawContent;
+  
+  if (summary) {
+    detailContent += `📋 SUMMARY\n${summary}\n\n`;
   }
   
-  // Key Points
-  if (ctx.keyPoints && ctx.keyPoints.length > 0) {
+  if (keyPoints && keyPoints.length > 0) {
     detailContent += `💡 KEY POINTS\n`;
-    ctx.keyPoints.forEach((point, i) => {
+    keyPoints.forEach((point, i) => {
       detailContent += `${i + 1}. ${point}\n`;
     });
     detailContent += '\n';
   }
   
-  // Tech Stack
-  if (ctx.techStack && ctx.techStack.length > 0) {
-    detailContent += `🛠️ TECH STACK\n${ctx.techStack.join(', ')}\n\n`;
+  if (techStack && techStack.length > 0) {
+    detailContent += `🛠️ TECH STACK\n${techStack.join(', ')}\n\n`;
   }
   
-  // Decisions
-  if (ctx.decisions && ctx.decisions.length > 0) {
+  if (decisions && decisions.length > 0) {
     detailContent += `✅ DECISIONS MADE\n`;
-    ctx.decisions.forEach((d, i) => {
+    decisions.forEach(d => {
       detailContent += `• ${d}\n`;
     });
     detailContent += '\n';
   }
   
-  // Open Questions
-  if (ctx.openQuestions && ctx.openQuestions.length > 0) {
+  if (openQuestions && openQuestions.length > 0) {
     detailContent += `❓ OPEN QUESTIONS\n`;
-    ctx.openQuestions.forEach((q, i) => {
+    openQuestions.forEach(q => {
       detailContent += `• ${q}\n`;
     });
     detailContent += '\n';
   }
   
-  // Message count
-  if (ctx.messageCount) {
-    detailContent += `💬 Messages: ${ctx.messageCount.user} user / ${ctx.messageCount.ai} AI\n\n`;
-  }
-  
-  // Raw content (collapsed or truncated)
   detailContent += `─────────────────────────\n📜 RAW CONVERSATION\n─────────────────────────\n`;
-  detailContent += ctx.rawContent || ctx.content || 'No raw content available';
+  detailContent += rawContent || ctx.content || 'No raw content available';
   
   elements.contextContent.value = detailContent;
   
@@ -502,47 +892,76 @@ function showContextDetail(id) {
 
 function setupEventListeners() {
   // Tabs
-  elements.tabProjects.addEventListener('click', () => showView('list'));
-  elements.tabCaptured.addEventListener('click', () => {
+  elements.tabProjects?.addEventListener('click', () => showView('list'));
+  elements.tabCaptured?.addEventListener('click', () => {
     loadData().then(() => {
       renderCapturedList();
       showView('captured');
     });
   });
+  elements.tabTeam?.addEventListener('click', () => showView('team'));
+  
+  // Team buttons
+  elements.createTeamBtn?.addEventListener('click', handleCreateTeam);
+  elements.joinTeamBtn?.addEventListener('click', handleJoinTeam);
+  elements.teamFormBackBtn?.addEventListener('click', () => showView('team'));
+  elements.teamCancelBtn?.addEventListener('click', () => showView('team'));
+  elements.teamForm?.addEventListener('submit', handleTeamFormSubmit);
+  elements.shareTeamBtn?.addEventListener('click', handleShareInvite);
+  elements.leaveTeamBtn?.addEventListener('click', handleLeaveTeam);
+  elements.shareToTeamBtn?.addEventListener('click', handleShareToTeam);
+  
+  // Team tabs
+  elements.teamContextsTab?.addEventListener('click', () => {
+    elements.teamContextsTab.classList.add('active');
+    elements.teamSummaryTab?.classList.remove('active');
+    elements.teamContextsList?.classList.remove('hidden');
+    elements.teamSummariesList?.classList.add('hidden');
+    elements.createSummaryBtn?.classList.add('hidden');
+  });
+  
+  elements.teamSummaryTab?.addEventListener('click', () => {
+    elements.teamSummaryTab.classList.add('active');
+    elements.teamContextsTab?.classList.remove('active');
+    elements.teamSummariesList?.classList.remove('hidden');
+    elements.teamContextsList?.classList.add('hidden');
+    elements.createSummaryBtn?.classList.remove('hidden');
+  });
   
   // Add project buttons
-  elements.addProjectBtn.addEventListener('click', showNewProjectForm);
-  elements.emptyAddBtn.addEventListener('click', showNewProjectForm);
+  elements.addProjectBtn?.addEventListener('click', showNewProjectForm);
+  elements.emptyAddBtn?.addEventListener('click', showNewProjectForm);
   
   // Back/Cancel buttons
-  elements.backBtn.addEventListener('click', () => showView('list'));
-  elements.cancelBtn.addEventListener('click', () => showView('list'));
-  elements.captureBackBtn.addEventListener('click', () => showView('list'));
-  elements.contextBackBtn.addEventListener('click', () => showView('captured'));
+  elements.backBtn?.addEventListener('click', () => showView('list'));
+  elements.cancelBtn?.addEventListener('click', () => showView('list'));
+  elements.captureBackBtn?.addEventListener('click', () => showView('list'));
+  elements.contextBackBtn?.addEventListener('click', () => showView('captured'));
   
   // Form submission
-  elements.projectForm.addEventListener('submit', handleFormSubmit);
+  elements.projectForm?.addEventListener('submit', handleFormSubmit);
   
   // Project list interactions
-  elements.projectList.addEventListener('click', handleProjectListClick);
+  elements.projectList?.addEventListener('click', handleProjectListClick);
   
   // Captured list interactions
-  elements.capturedList.addEventListener('click', handleCapturedListClick);
+  elements.capturedList?.addEventListener('click', handleCapturedListClick);
+  elements.teamContextsList?.addEventListener('click', handleTeamContextsClick);
   
   // Quick actions
-  elements.injectBtn.addEventListener('click', handleInject);
-  elements.copyBtn.addEventListener('click', handleCopy);
-  elements.captureBtn.addEventListener('click', showCaptureView);
+  elements.injectBtn?.addEventListener('click', handleInject);
+  elements.copyBtn?.addEventListener('click', handleCopy);
+  elements.captureBtn?.addEventListener('click', showCaptureView);
   
   // Capture actions
-  elements.captureSelection.addEventListener('click', handleCaptureSelection);
-  elements.captureConversation.addEventListener('click', handleCaptureConversation);
-  elements.saveCaptured.addEventListener('click', handleSaveCaptured);
+  elements.captureSelection?.addEventListener('click', handleCaptureSelection);
+  elements.captureConversation?.addEventListener('click', handleCaptureConversation);
+  elements.saveCaptured?.addEventListener('click', handleSaveCaptured);
   
   // Context detail actions
-  elements.injectContextBtn.addEventListener('click', handleInjectContext);
-  elements.copyContextBtn.addEventListener('click', handleCopyContext);
-  elements.deleteContextBtn.addEventListener('click', handleDeleteContext);
+  elements.injectContextBtn?.addEventListener('click', handleInjectContext);
+  elements.copyContextBtn?.addEventListener('click', handleCopyContext);
+  elements.deleteContextBtn?.addEventListener('click', handleDeleteContext);
   
   // Auto-capture toggle
   elements.autoCaptureToggle?.addEventListener('change', (e) => {
@@ -552,6 +971,19 @@ function setupEventListeners() {
   
   // Refresh/Manual capture button
   elements.refreshCaptureBtn?.addEventListener('click', handleManualCapture);
+  
+  // Sync button
+  elements.syncStatusBtn?.addEventListener('click', syncWithCloud);
+  
+  // Online/offline events
+  window.addEventListener('online', () => {
+    isOnline = true;
+    syncWithCloud();
+  });
+  
+  window.addEventListener('offline', () => {
+    isOnline = false;
+  });
 }
 
 function handleFormSubmit(e) {
@@ -621,8 +1053,52 @@ function handleCapturedListClick(e) {
     return;
   }
   
-  // Click on card itself opens detail
   showContextDetail(id);
+}
+
+function handleTeamContextsClick(e) {
+  const card = e.target.closest('.captured-card');
+  if (!card) return;
+  
+  const id = card.dataset.id;
+  
+  if (e.target.closest('.use-btn')) {
+    const ctx = teamContexts.find(c => c.id === id);
+    if (ctx) {
+      const prompt = formatTeamContext(ctx);
+      injectOrCopy(prompt);
+    }
+    return;
+  }
+  
+  showContextDetail(id, true);
+}
+
+function formatTeamContext(ctx) {
+  let prompt = `Continue from this team context:\n\n`;
+  prompt += `Platform: ${ctx.platform}\n`;
+  prompt += `Topic: ${ctx.title}\n`;
+  prompt += `Shared by: ${ctx.extension_users?.name || 'Team member'}\n\n`;
+  
+  if (ctx.summary) {
+    prompt += `Summary: ${ctx.summary}\n\n`;
+  }
+  
+  if (ctx.key_points && ctx.key_points.length > 0) {
+    prompt += `Key Points:\n`;
+    ctx.key_points.forEach((point, i) => {
+      prompt += `${i + 1}. ${point}\n`;
+    });
+    prompt += '\n';
+  }
+  
+  if (ctx.tech_stack && ctx.tech_stack.length > 0) {
+    prompt += `Tech Stack: ${ctx.tech_stack.join(', ')}\n\n`;
+  }
+  
+  prompt += `Do not re-explain basics. Continue from this context.`;
+  
+  return prompt;
 }
 
 async function handleInject() {
@@ -688,7 +1164,6 @@ function formatCapturedContext(ctx) {
   prompt += `Topic: ${ctx.title}\n`;
   prompt += `Captured: ${new Date(ctx.timestamp).toLocaleString()}\n\n`;
   
-  // Add structured context if available
   if (ctx.summary) {
     prompt += `Summary: ${ctx.summary}\n\n`;
   }
@@ -753,9 +1228,6 @@ async function injectOrCopy(prompt) {
   }
 }
 
-/**
- * Manual capture - fetch current chat from active AI tab
- */
 async function handleManualCapture() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -765,7 +1237,6 @@ async function handleManualCapture() {
       return;
     }
     
-    // Check if it's an AI platform
     const aiPlatforms = {
       'chat.openai.com': 'ChatGPT',
       'chatgpt.com': 'ChatGPT',
@@ -802,10 +1273,8 @@ async function handleManualCapture() {
         return;
       }
       
-      // Generate detailed context from raw text
       const detailedContext = generateDetailedContextFromText(response.text, platform, tab.title);
       
-      // Create captured context with detailed analysis
       const context = {
         id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
         platform: platform,
@@ -821,13 +1290,8 @@ async function handleManualCapture() {
         timestamp: Date.now()
       };
       
-      // Save to captured contexts
       await loadData();
-      
-      // Remove existing capture of same URL if any
       capturedContexts = capturedContexts.filter(c => c.url !== tab.url);
-      
-      // Add new capture at the top
       capturedContexts = [context, ...capturedContexts].slice(0, 20);
       await saveCapturedContexts();
       
@@ -966,13 +1430,9 @@ function getRelativeTime(timestamp) {
 
 // ===== CONTEXT ANALYSIS FUNCTIONS =====
 
-/**
- * Generate detailed structured context from conversation text (for manual capture)
- */
 function generateDetailedContextFromText(text, platform, title) {
   const lines = text.split('\n').filter(l => l.trim().length > 0);
   
-  // Identify conversation structure
   const userMessages = [];
   const aiMessages = [];
   let currentSpeaker = null;
@@ -981,7 +1441,6 @@ function generateDetailedContextFromText(text, platform, title) {
   for (const line of lines) {
     const lowerLine = line.toLowerCase().trim();
     
-    // Detect speaker changes
     if (lowerLine.startsWith('you:') || lowerLine.startsWith('user:') || lowerLine.startsWith('human:')) {
       if (currentMessage.length > 0 && currentSpeaker) {
         if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
@@ -1001,7 +1460,6 @@ function generateDetailedContextFromText(text, platform, title) {
     } else if (currentSpeaker) {
       currentMessage.push(line);
     } else {
-      // If no speaker detected yet, try to infer from content
       if (line.length > 50) {
         currentSpeaker = 'ai';
         currentMessage = [line];
@@ -1012,13 +1470,11 @@ function generateDetailedContextFromText(text, platform, title) {
     }
   }
   
-  // Push last message
   if (currentMessage.length > 0 && currentSpeaker) {
     if (currentSpeaker === 'user') userMessages.push(currentMessage.join('\n'));
     else aiMessages.push(currentMessage.join('\n'));
   }
   
-  // Extract key information
   const topic = extractTopicFromMessages(userMessages, title);
   const keyPoints = extractKeyPointsFromMessages(aiMessages);
   const techStack = extractTechStackFromText(text);
