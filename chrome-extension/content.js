@@ -82,16 +82,23 @@ function extractConversation(platform) {
 }
 
 function injectContext(context) {
-  const input = document.querySelector('textarea, div[contenteditable="true"], #prompt-textarea, .ProseMirror');
-  if (input) {
-    if (input.getAttribute('contenteditable') === 'true') input.innerHTML = context;
-    else input.value = context;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.focus();
-    return true;
+  if (!isExtensionValid()) return false;
+  
+  try {
+    const input = document.querySelector('textarea, div[contenteditable="true"], #prompt-textarea, .ProseMirror');
+    if (input) {
+      if (input.getAttribute('contenteditable') === 'true') input.innerHTML = context;
+      else input.value = context;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.focus();
+      return true;
+    }
+    navigator.clipboard.writeText(context).catch(() => {});
+    return false;
+  } catch (e) {
+    console.log('AI Context Bridge: injectContext failed', e.message);
+    return false;
   }
-  navigator.clipboard.writeText(context);
-  return false;
 }
 
 // Continuous capture with MutationObserver
