@@ -15,6 +15,15 @@ const PLATFORM_SELECTORS = {
   Perplexity: { conversation: '[class*="prose"], .answer-text' }
 };
 
+// Check if extension context is still valid
+function isExtensionValid() {
+  try {
+    return chrome.runtime && !!chrome.runtime.id;
+  } catch (e) {
+    return false;
+  }
+}
+
 function detectPlatform() {
   const hostname = window.location.hostname;
   for (const [domain, name] of Object.entries(PLATFORMS)) {
@@ -23,7 +32,23 @@ function detectPlatform() {
   return null;
 }
 
+// Safely send messages to background script
+function safeSendMessage(message) {
+  if (!isExtensionValid()) {
+    console.log('AI Context Bridge: Extension context invalidated, skipping message');
+    return Promise.resolve(null);
+  }
+  try {
+    return chrome.runtime.sendMessage(message).catch(() => null);
+  } catch (e) {
+    console.log('AI Context Bridge: Failed to send message', e.message);
+    return Promise.resolve(null);
+  }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (!isExtensionValid()) return;
+  
   if (request.type === 'GET_CONVERSATION') {
     sendResponse({ text: extractConversation(detectPlatform()), platform: detectPlatform() });
   } else if (request.type === 'INJECT_CONTEXT') {
@@ -70,10 +95,19 @@ function injectContext(context) {
 }
 
 // Continuous capture with MutationObserver
-let lastHash = '', debounceTimer = null;
+let lastHash = '', debounceTimer = null, observer = null;
 function hashContent(c) { let h = 0; for (let i = 0; i < c.length; i++) h = ((h << 5) - h) + c.charCodeAt(i) & 0xffffffff; return h.toString(); }
 
 function notifyChange() {
+  if (!isExtensionValid()) {
+    // Stop observing if extension is invalidated
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+    return;
+  }
+  
   const platform = detectPlatform();
   if (!platform) return;
   const content = extractConversation(platform);
@@ -81,19 +115,25 @@ function notifyChange() {
   const hash = hashContent(content);
   if (hash !== lastHash) {
     lastHash = hash;
-    chrome.runtime.sendMessage({ type: 'CONTENT_UPDATED', platform, contentLength: content.length }).catch(() => {});
+    safeSendMessage({ type: 'CONTENT_UPDATED', platform, contentLength: content.length });
   }
 }
 
 function setupObserver() {
-  if (!detectPlatform()) return;
-  new MutationObserver(muts => {
+  if (!detectPlatform() || !isExtensionValid()) return;
+  observer = new MutationObserver(muts => {
+    if (!isExtensionValid()) {
+      observer.disconnect();
+      observer = null;
+      return;
+    }
     if (muts.some(m => m.type === 'childList' && m.addedNodes.length)) {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(notifyChange, 5000);
     }
-  }).observe(document.body, { childList: true, subtree: true });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 setTimeout(setupObserver, 2000);
-setTimeout(() => { const c = extractConversation(detectPlatform()); if (c) lastHash = hashContent(c); }, 3000);
+setTimeout(() => { if (isExtensionValid()) { const c = extractConversation(detectPlatform()); if (c) lastHash = hashContent(c); } }, 3000);
