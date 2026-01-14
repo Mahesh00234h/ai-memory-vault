@@ -4,22 +4,30 @@
  */
 
 // ===== INSTALLATION HANDLER =====
-chrome.runtime.onInstalled.addListener((details) => {
+chrome.runtime.onInstalled.addListener(async (details) => {
   console.log('AI Context Bridge installed:', details.reason);
   
-  // Initialize storage on first install
+  // Initialize or migrate storage
+  const defaultSettings = {
+    autoCapture: true,
+    showNotifications: true
+  };
+  
   if (details.reason === 'install') {
-    chrome.storage.local.set({
+    await chrome.storage.local.set({
       projects: [],
       activeProjectId: null,
       capturedContexts: [],
-      settings: {
-        autoCapture: true,
-        showNotifications: true
-      }
+      settings: defaultSettings
     });
-    
     console.log('AI Context Bridge: Storage initialized');
+  } else if (details.reason === 'update') {
+    // Ensure settings exist on update
+    const { settings } = await chrome.storage.local.get(['settings']);
+    if (!settings) {
+      await chrome.storage.local.set({ settings: defaultSettings, capturedContexts: [] });
+      console.log('AI Context Bridge: Settings migrated');
+    }
   }
 });
 
@@ -69,60 +77,90 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   // Only trigger when page is fully loaded
   if (changeInfo.status !== 'complete') return;
+  if (!tab.url) return;
   
-  const url = tab.url || '';
-  const platform = detectAiPlatform(url);
-  
+  const platform = detectAiPlatform(tab.url);
   if (!platform) return;
   
-  // Get settings
-  const { settings } = await chrome.storage.local.get(['settings']);
-  if (!settings?.autoCapture) return;
+  console.log('AI Context Bridge: Detected AI platform:', platform);
   
-  // Wait for page to fully render
-  await delay(2000);
+  // Get settings - ensure defaults if missing
+  let { settings } = await chrome.storage.local.get(['settings']);
+  if (!settings) {
+    settings = { autoCapture: true, showNotifications: true };
+    await chrome.storage.local.set({ settings });
+  }
   
-  // Check if content script is ready
+  if (!settings.autoCapture) {
+    console.log('AI Context Bridge: Auto-capture is disabled');
+    return;
+  }
+  
+  console.log('AI Context Bridge: Auto-capture enabled, waiting for page to load...');
+  
+  // Wait for page to fully render (AI sites are usually slow)
+  await delay(3000);
+  
+  // Try to capture conversation
   try {
-    const response = await sendMessageToTab(tabId, { type: 'PING' });
+    // First check if content script is ready
+    const pingResponse = await sendMessageToTab(tabId, { type: 'PING' });
+    console.log('AI Context Bridge: Ping response:', pingResponse);
     
-    if (response?.success) {
-      // Fetch conversation
-      const convResponse = await sendMessageToTab(tabId, { type: 'GET_CONVERSATION' });
-      
-      if (convResponse?.text && convResponse.text.trim().length > 50) {
-        // Create auto-captured context
-        const context = {
-          id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
-          platform: platform,
-          url: tab.url,
-          title: tab.title || 'Untitled Chat',
-          content: convResponse.text,
-          summary: generateQuickSummary(convResponse.text),
-          timestamp: Date.now()
-        };
-        
-        // Save to captured contexts
-        const { capturedContexts = [] } = await chrome.storage.local.get(['capturedContexts']);
-        
-        // Check if we already captured this URL recently (within last 5 minutes)
-        const recentCapture = capturedContexts.find(c => 
-          c.url === tab.url && (Date.now() - c.timestamp) < 5 * 60 * 1000
-        );
-        
-        if (!recentCapture) {
-          // Keep only last 20 captures
-          const updatedContexts = [context, ...capturedContexts].slice(0, 20);
-          await chrome.storage.local.set({ capturedContexts: updatedContexts });
-          
-          // Update badge
-          chrome.action.setBadgeText({ text: '✓', tabId });
-          chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId });
-          
-          console.log('AI Context Bridge: Auto-captured context from', platform);
-        }
-      }
+    if (!pingResponse?.success) {
+      console.log('AI Context Bridge: Content script not ready');
+      return;
     }
+    
+    // Fetch conversation
+    const convResponse = await sendMessageToTab(tabId, { type: 'GET_CONVERSATION' });
+    console.log('AI Context Bridge: Conversation response length:', convResponse?.text?.length || 0);
+    
+    if (!convResponse?.text || convResponse.text.trim().length < 20) {
+      console.log('AI Context Bridge: No conversation content found (might be empty chat)');
+      return;
+    }
+    
+    // Create auto-captured context
+    const context = {
+      id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
+      platform: platform,
+      url: tab.url,
+      title: tab.title || 'Untitled Chat',
+      content: convResponse.text,
+      summary: generateQuickSummary(convResponse.text),
+      timestamp: Date.now()
+    };
+    
+    // Save to captured contexts
+    let { capturedContexts = [] } = await chrome.storage.local.get(['capturedContexts']);
+    if (!Array.isArray(capturedContexts)) capturedContexts = [];
+    
+    // Check if we already captured this URL recently (within last 2 minutes)
+    const recentCapture = capturedContexts.find(c => 
+      c.url === tab.url && (Date.now() - c.timestamp) < 2 * 60 * 1000
+    );
+    
+    if (recentCapture) {
+      console.log('AI Context Bridge: Already captured this chat recently');
+      return;
+    }
+    
+    // Keep only last 20 captures
+    const updatedContexts = [context, ...capturedContexts].slice(0, 20);
+    await chrome.storage.local.set({ capturedContexts: updatedContexts });
+    
+    // Update badge
+    chrome.action.setBadgeText({ text: '✓', tabId });
+    chrome.action.setBadgeBackgroundColor({ color: '#22c55e', tabId });
+    
+    console.log('AI Context Bridge: ✓ Auto-captured context from', platform, '- Content length:', context.content.length);
+    
+    // Show notification if enabled
+    if (settings.showNotifications) {
+      showNotification('Context Captured', `Saved chat from ${platform}`);
+    }
+    
   } catch (error) {
     console.log('AI Context Bridge: Could not auto-capture:', error.message);
   }
