@@ -1,277 +1,99 @@
-/**
- * AI Context Bridge - Content Script
- * Handles DOM interactions on AI chat platforms
- * Supports: ChatGPT, Claude, Gemini, Copilot, Poe, Perplexity
- */
+// AI Context Bridge - Content Script
+console.log('AI Context Bridge: Content script loaded');
 
-// ===== SELECTORS FOR DIFFERENT AI PLATFORMS =====
-const PLATFORM_SELECTORS = {
-  // ChatGPT / OpenAI
-  chatgpt: {
-    input: '#prompt-textarea, textarea[data-id="root"], div[contenteditable="true"][id="prompt-textarea"]',
-    conversation: '[data-message-author-role]',
-    container: 'main'
-  },
-  // Claude / Anthropic
-  claude: {
-    input: 'div[contenteditable="true"].ProseMirror, div[contenteditable="true"]',
-    conversation: '[data-testid="message-content"], .font-claude-message',
-    container: 'main'
-  },
-  // Google Gemini
-  gemini: {
-    input: 'rich-textarea div[contenteditable="true"], .ql-editor',
-    conversation: '.model-response-text, .response-content',
-    container: 'main'
-  },
-  // Microsoft Copilot
-  copilot: {
-    input: 'textarea#userInput, cib-serp cib-action-bar textarea',
-    conversation: '.ac-textBlock',
-    container: 'main'
-  },
-  // Poe
-  poe: {
-    input: 'textarea[class*="ChatMessageInputView"]',
-    conversation: '[class*="Message_messageRow"]',
-    container: 'main'
-  },
-  // Perplexity
-  perplexity: {
-    input: 'textarea[placeholder*="Ask"]',
-    conversation: '[class*="prose"]',
-    container: 'main'
-  }
+const PLATFORMS = {
+  'chat.openai.com': 'ChatGPT', 'chatgpt.com': 'ChatGPT', 'claude.ai': 'Claude',
+  'gemini.google.com': 'Gemini', 'copilot.microsoft.com': 'Copilot', 'poe.com': 'Poe', 'perplexity.ai': 'Perplexity'
 };
 
-// ===== DETECT CURRENT PLATFORM =====
+const PLATFORM_SELECTORS = {
+  ChatGPT: { conversation: '[data-message-author-role], .text-base, article[data-testid]' },
+  Claude: { conversation: '[data-testid="conversation-turn"], .prose, div[class*="Message"]' },
+  Gemini: { conversation: 'message-content, .response-container' },
+  Copilot: { conversation: '.response-message, .user-message' },
+  Poe: { conversation: '[class*="Message"], .ChatMessage' },
+  Perplexity: { conversation: '[class*="prose"], .answer-text' }
+};
+
 function detectPlatform() {
   const hostname = window.location.hostname;
-  
-  if (hostname.includes('chat.openai.com') || hostname.includes('chatgpt.com')) {
-    return 'chatgpt';
+  for (const [domain, name] of Object.entries(PLATFORMS)) {
+    if (hostname.includes(domain.replace('www.', ''))) return name;
   }
-  if (hostname.includes('claude.ai')) {
-    return 'claude';
-  }
-  if (hostname.includes('gemini.google.com')) {
-    return 'gemini';
-  }
-  if (hostname.includes('copilot.microsoft.com')) {
-    return 'copilot';
-  }
-  if (hostname.includes('poe.com')) {
-    return 'poe';
-  }
-  if (hostname.includes('perplexity.ai')) {
-    return 'perplexity';
-  }
-  
   return null;
 }
 
-// ===== FIND INPUT ELEMENT =====
-function findInputElement() {
-  const platform = detectPlatform();
-  
-  // Try platform-specific selector first
-  if (platform && PLATFORM_SELECTORS[platform]) {
-    const input = document.querySelector(PLATFORM_SELECTORS[platform].input);
-    if (input) return input;
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.type === 'GET_CONVERSATION') {
+    sendResponse({ text: extractConversation(detectPlatform()), platform: detectPlatform() });
+  } else if (request.type === 'INJECT_CONTEXT') {
+    sendResponse({ success: injectContext(request.context) });
+  } else if (request.type === 'PING') {
+    sendResponse({ pong: true });
   }
-  
-  // Fallback: try common selectors
-  const fallbackSelectors = [
-    'textarea[placeholder*="message"]',
-    'textarea[placeholder*="Message"]',
-    'textarea[placeholder*="Ask"]',
-    'textarea[placeholder*="Type"]',
-    'div[contenteditable="true"]',
-    'textarea[rows]'
-  ];
-  
-  for (const selector of fallbackSelectors) {
-    const element = document.querySelector(selector);
-    if (element && isVisible(element)) {
-      return element;
-    }
-  }
-  
-  return null;
-}
-
-// ===== GET CONVERSATION TEXT =====
-function getConversationText() {
-  const platform = detectPlatform();
-  let messages = [];
-  
-  // Try platform-specific selector
-  if (platform && PLATFORM_SELECTORS[platform]) {
-    const elements = document.querySelectorAll(PLATFORM_SELECTORS[platform].conversation);
-    elements.forEach(el => {
-      const text = el.innerText || el.textContent;
-      if (text && text.trim() && text.trim().length > 20) {
-        messages.push(text.trim());
-      }
-    });
-  }
-  
-  // If no messages found, try generic approach
-  if (messages.length === 0) {
-    // Look for common message container patterns
-    const containers = document.querySelectorAll('[class*="message"], [class*="Message"], [data-message], [role="article"]');
-    containers.forEach(el => {
-      const text = el.innerText || el.textContent;
-      if (text && text.trim() && text.length > 30) {
-        messages.push(text.trim());
-      }
-    });
-  }
-  
-  // Filter out UI/boilerplate text that's not actual conversation
-  const filteredMessages = messages.filter(msg => {
-    const lower = msg.toLowerCase();
-    // Skip common UI elements and placeholder text
-    const uiPatterns = [
-      'how can i help',
-      'start a new chat',
-      'what can i help',
-      'enter a prompt',
-      'type a message',
-      'upload a file',
-      'attach files',
-      'new conversation'
-    ];
-    return !uiPatterns.some(pattern => lower.includes(pattern) && msg.length < 100);
-  });
-  
-  // Remove duplicates and join
-  const uniqueMessages = [...new Set(filteredMessages)];
-  return uniqueMessages.join('\n\n---\n\n');
-}
-
-// ===== INJECT TEXT INTO INPUT =====
-function injectText(text) {
-  const input = findInputElement();
-  
-  if (!input) {
-    console.log('AI Context Bridge: Could not find input element');
-    return false;
-  }
-  
-  try {
-    // Handle contenteditable divs (Claude, ChatGPT newer versions)
-    if (input.getAttribute('contenteditable') === 'true') {
-      // Focus the element
-      input.focus();
-      
-      // Clear existing content and insert new text
-      // Use execCommand for better compatibility with React
-      document.execCommand('selectAll', false, null);
-      document.execCommand('insertText', false, text);
-      
-      // Dispatch input event
-      input.dispatchEvent(new InputEvent('input', {
-        bubbles: true,
-        cancelable: true,
-        inputType: 'insertText',
-        data: text
-      }));
-      
-      return true;
-    }
-    
-    // Handle textarea elements
-    if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-      input.focus();
-      
-      // Set the value
-      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLTextAreaElement.prototype,
-        'value'
-      )?.set || Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype,
-        'value'
-      )?.set;
-      
-      if (nativeInputValueSetter) {
-        nativeInputValueSetter.call(input, text);
-      } else {
-        input.value = text;
-      }
-      
-      // Dispatch events for React
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      input.dispatchEvent(new Event('change', { bubbles: true }));
-      
-      // Auto-resize if needed
-      input.style.height = 'auto';
-      input.style.height = input.scrollHeight + 'px';
-      
-      return true;
-    }
-    
-    console.log('AI Context Bridge: Unsupported input type');
-    return false;
-    
-  } catch (error) {
-    console.error('AI Context Bridge: Injection error:', error);
-    return false;
-  }
-}
-
-// ===== GET SELECTED TEXT =====
-function getSelectedText() {
-  const selection = window.getSelection();
-  return selection ? selection.toString().trim() : '';
-}
-
-// ===== UTILITY: CHECK IF ELEMENT IS VISIBLE =====
-function isVisible(element) {
-  if (!element) return false;
-  
-  const style = window.getComputedStyle(element);
-  return (
-    style.display !== 'none' &&
-    style.visibility !== 'hidden' &&
-    style.opacity !== '0' &&
-    element.offsetWidth > 0 &&
-    element.offsetHeight > 0
-  );
-}
-
-// ===== MESSAGE LISTENER =====
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('AI Context Bridge: Received message:', message.type);
-  
-  switch (message.type) {
-    case 'INJECT_CONTEXT':
-      const success = injectText(message.prompt);
-      sendResponse({ success });
-      break;
-      
-    case 'GET_SELECTION':
-      const selectedText = getSelectedText();
-      sendResponse({ text: selectedText });
-      break;
-      
-    case 'GET_CONVERSATION':
-      const conversationText = getConversationText();
-      sendResponse({ text: conversationText });
-      break;
-      
-    case 'PING':
-      sendResponse({ success: true, platform: detectPlatform() });
-      break;
-      
-    default:
-      sendResponse({ success: false, error: 'Unknown message type' });
-  }
-  
-  // Return true to indicate async response
   return true;
 });
 
-// ===== INITIALIZATION =====
-console.log('AI Context Bridge: Content script loaded on', window.location.hostname);
-console.log('AI Context Bridge: Detected platform:', detectPlatform());
+function extractConversation(platform) {
+  let messages = [];
+  if (platform && PLATFORM_SELECTORS[platform]) {
+    document.querySelectorAll(PLATFORM_SELECTORS[platform].conversation).forEach(el => {
+      const text = el.innerText?.trim();
+      if (text && text.length > 20) messages.push(text);
+    });
+  }
+  if (!messages.length) {
+    document.querySelectorAll('[class*="message"], [class*="Message"], [data-message]').forEach(el => {
+      const text = el.innerText?.trim();
+      if (text && text.length > 30) messages.push(text);
+    });
+  }
+  const filtered = messages.filter(msg => {
+    const lower = msg.toLowerCase();
+    const uiPatterns = ['how can i help', 'start a new chat', 'enter a prompt', 'type a message'];
+    return !uiPatterns.some(p => lower.includes(p) && msg.length < 100);
+  });
+  return [...new Set(filtered)].join('\n\n---\n\n');
+}
+
+function injectContext(context) {
+  const input = document.querySelector('textarea, div[contenteditable="true"], #prompt-textarea, .ProseMirror');
+  if (input) {
+    if (input.getAttribute('contenteditable') === 'true') input.innerHTML = context;
+    else input.value = context;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+    return true;
+  }
+  navigator.clipboard.writeText(context);
+  return false;
+}
+
+// Continuous capture with MutationObserver
+let lastHash = '', debounceTimer = null;
+function hashContent(c) { let h = 0; for (let i = 0; i < c.length; i++) h = ((h << 5) - h) + c.charCodeAt(i) & 0xffffffff; return h.toString(); }
+
+function notifyChange() {
+  const platform = detectPlatform();
+  if (!platform) return;
+  const content = extractConversation(platform);
+  if (!content || content.length < 100) return;
+  const hash = hashContent(content);
+  if (hash !== lastHash) {
+    lastHash = hash;
+    chrome.runtime.sendMessage({ type: 'CONTENT_UPDATED', platform, contentLength: content.length }).catch(() => {});
+  }
+}
+
+function setupObserver() {
+  if (!detectPlatform()) return;
+  new MutationObserver(muts => {
+    if (muts.some(m => m.type === 'childList' && m.addedNodes.length)) {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(notifyChange, 5000);
+    }
+  }).observe(document.body, { childList: true, subtree: true });
+}
+
+setTimeout(setupObserver, 2000);
+setTimeout(() => { const c = extractConversation(detectPlatform()); if (c) lastHash = hashContent(c); }, 3000);
