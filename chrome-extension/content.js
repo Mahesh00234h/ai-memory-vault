@@ -110,7 +110,7 @@ function getConversationText() {
     const elements = document.querySelectorAll(PLATFORM_SELECTORS[platform].conversation);
     elements.forEach(el => {
       const text = el.innerText || el.textContent;
-      if (text && text.trim()) {
+      if (text && text.trim() && text.trim().length > 20) {
         messages.push(text.trim());
       }
     });
@@ -122,14 +122,31 @@ function getConversationText() {
     const containers = document.querySelectorAll('[class*="message"], [class*="Message"], [data-message], [role="article"]');
     containers.forEach(el => {
       const text = el.innerText || el.textContent;
-      if (text && text.trim() && text.length > 10) {
+      if (text && text.trim() && text.length > 30) {
         messages.push(text.trim());
       }
     });
   }
   
+  // Filter out UI/boilerplate text that's not actual conversation
+  const filteredMessages = messages.filter(msg => {
+    const lower = msg.toLowerCase();
+    // Skip common UI elements and placeholder text
+    const uiPatterns = [
+      'how can i help',
+      'start a new chat',
+      'what can i help',
+      'enter a prompt',
+      'type a message',
+      'upload a file',
+      'attach files',
+      'new conversation'
+    ];
+    return !uiPatterns.some(pattern => lower.includes(pattern) && msg.length < 100);
+  });
+  
   // Remove duplicates and join
-  const uniqueMessages = [...new Set(messages)];
+  const uniqueMessages = [...new Set(filteredMessages)];
   return uniqueMessages.join('\n\n---\n\n');
 }
 

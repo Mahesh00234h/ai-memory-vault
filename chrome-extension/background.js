@@ -116,19 +116,36 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     const convResponse = await sendMessageToTab(tabId, { type: 'GET_CONVERSATION' });
     console.log('AI Context Bridge: Conversation response length:', convResponse?.text?.length || 0);
     
-    if (!convResponse?.text || convResponse.text.trim().length < 20) {
-      console.log('AI Context Bridge: No conversation content found (might be empty chat)');
+    if (!convResponse?.text || convResponse.text.trim().length < 50) {
+      console.log('AI Context Bridge: No conversation content found (might be empty chat or landing page)');
       return;
     }
     
-    // Create detailed structured context
-    const detailedContext = generateDetailedContext(convResponse.text, platform, tab.title);
+    // Check if content looks like actual conversation (not just UI text)
+    const text = convResponse.text.trim();
+    const hasMultipleLines = text.split('\n').filter(l => l.trim().length > 10).length >= 2;
+    const looksLikeConversation = hasMultipleLines && text.length > 100;
+    
+    if (!looksLikeConversation) {
+      console.log('AI Context Bridge: Content does not look like a conversation, skipping');
+      return;
+    }
+    
+    // Re-fetch tab info to get the CURRENT title (not stale one from before delay)
+    const currentTab = await chrome.tabs.get(tabId);
+    const currentTitle = currentTab?.title || '';
+    const currentUrl = currentTab?.url || tab.url;
+    
+    console.log('AI Context Bridge: Current tab title:', currentTitle);
+    
+    // Create detailed structured context with CURRENT title
+    const detailedContext = generateDetailedContext(convResponse.text, platform, currentTitle);
     
     const context = {
       id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9),
       platform: platform,
-      url: tab.url,
-      title: detailedContext.topic || tab.title || 'Untitled Chat',
+      url: currentUrl,
+      title: detailedContext.topic || cleanTitle(currentTitle, platform) || 'Untitled Chat',
       rawContent: convResponse.text,
       summary: detailedContext.summary,
       keyPoints: detailedContext.keyPoints,
@@ -495,6 +512,31 @@ function showNotification(title, message) {
  */
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Clean up title - remove platform prefix and generic titles
+ */
+function cleanTitle(title, platform) {
+  if (!title) return null;
+  
+  const lowerTitle = title.toLowerCase();
+  
+  // Skip generic titles that don't describe the conversation
+  const genericTitles = ['new chat', 'untitled', 'chat', 'home', 'chatgpt', 'claude', 'gemini', 'copilot', 'poe', 'perplexity'];
+  if (genericTitles.some(g => lowerTitle === g || lowerTitle === g + ' - ' + platform?.toLowerCase())) {
+    return null;
+  }
+  
+  // Remove platform prefixes like "ChatGPT - ", "Claude - ", etc.
+  let cleaned = title.replace(/^(claude|chatgpt|gemini|copilot|poe|perplexity|chat)\s*[-–—|:]\s*/i, '').trim();
+  
+  // Also remove trailing platform names
+  cleaned = cleaned.replace(/\s*[-–—|:]\s*(claude|chatgpt|gemini|copilot|poe|perplexity|chat)$/i, '').trim();
+  
+  if (cleaned.length < 3) return null;
+  
+  return cleaned;
 }
 
 // ===== TAB ACTIVATION LISTENER =====
