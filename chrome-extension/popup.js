@@ -6,7 +6,9 @@
 // ===== STATE =====
 let projects = [];
 let activeProjectId = null;
+let capturedContexts = [];
 let currentView = 'list';
+let selectedContextId = null;
 
 // ===== DOM ELEMENTS =====
 const elements = {
@@ -14,10 +16,22 @@ const elements = {
   projectListView: document.getElementById('projectListView'),
   projectFormView: document.getElementById('projectFormView'),
   captureView: document.getElementById('captureView'),
+  capturedView: document.getElementById('capturedView'),
+  contextDetailView: document.getElementById('contextDetailView'),
+  
+  // Tabs
+  tabProjects: document.getElementById('tabProjects'),
+  tabCaptured: document.getElementById('tabCaptured'),
+  capturedCount: document.getElementById('capturedCount'),
   
   // Project List
   projectList: document.getElementById('projectList'),
   emptyState: document.getElementById('emptyState'),
+  
+  // Captured List
+  capturedList: document.getElementById('capturedList'),
+  capturedEmptyState: document.getElementById('capturedEmptyState'),
+  autoCaptureToggle: document.getElementById('autoCaptureToggle'),
   
   // Buttons
   addProjectBtn: document.getElementById('addProjectBtn'),
@@ -25,6 +39,7 @@ const elements = {
   backBtn: document.getElementById('backBtn'),
   cancelBtn: document.getElementById('cancelBtn'),
   captureBackBtn: document.getElementById('captureBackBtn'),
+  contextBackBtn: document.getElementById('contextBackBtn'),
   
   // Form
   projectForm: document.getElementById('projectForm'),
@@ -45,6 +60,15 @@ const elements = {
   captureTarget: document.getElementById('captureTarget'),
   saveCaptured: document.getElementById('saveCaptured'),
   
+  // Context Detail
+  contextDetailTitle: document.getElementById('contextDetailTitle'),
+  contextPlatform: document.getElementById('contextPlatform'),
+  contextTime: document.getElementById('contextTime'),
+  contextContent: document.getElementById('contextContent'),
+  injectContextBtn: document.getElementById('injectContextBtn'),
+  copyContextBtn: document.getElementById('copyContextBtn'),
+  deleteContextBtn: document.getElementById('deleteContextBtn'),
+  
   // Quick Actions
   quickActions: document.getElementById('quickActions'),
   injectBtn: document.getElementById('injectBtn'),
@@ -57,25 +81,34 @@ const elements = {
 
 // ===== INITIALIZATION =====
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadProjects();
+  await loadData();
   renderProjectList();
+  renderCapturedList();
   setupEventListeners();
+  updateCapturedBadge();
 });
 
 // ===== STORAGE FUNCTIONS =====
 
 /**
- * Load projects from chrome.storage.local
+ * Load all data from chrome.storage.local
  */
-async function loadProjects() {
+async function loadData() {
   try {
-    const result = await chrome.storage.local.get(['projects', 'activeProjectId']);
+    const result = await chrome.storage.local.get(['projects', 'activeProjectId', 'capturedContexts', 'settings']);
     projects = result.projects || [];
     activeProjectId = result.activeProjectId || null;
+    capturedContexts = result.capturedContexts || [];
+    
+    // Set auto-capture toggle
+    if (elements.autoCaptureToggle) {
+      elements.autoCaptureToggle.checked = result.settings?.autoCapture !== false;
+    }
   } catch (error) {
-    console.error('Error loading projects:', error);
+    console.error('Error loading data:', error);
     projects = [];
     activeProjectId = null;
+    capturedContexts = [];
   }
 }
 
@@ -91,18 +124,38 @@ async function saveProjects() {
   }
 }
 
-// ===== PROJECT FUNCTIONS =====
+/**
+ * Save captured contexts
+ */
+async function saveCapturedContexts() {
+  try {
+    await chrome.storage.local.set({ capturedContexts });
+    updateCapturedBadge();
+  } catch (error) {
+    console.error('Error saving contexts:', error);
+  }
+}
 
 /**
- * Generate unique ID for projects
+ * Save settings
  */
+async function saveSettings(settings) {
+  try {
+    const result = await chrome.storage.local.get(['settings']);
+    await chrome.storage.local.set({ 
+      settings: { ...result.settings, ...settings } 
+    });
+  } catch (error) {
+    console.error('Error saving settings:', error);
+  }
+}
+
+// ===== PROJECT FUNCTIONS =====
+
 function generateId() {
   return 'proj_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
 }
 
-/**
- * Create a new project
- */
 function createProject(data) {
   const project = {
     id: generateId(),
@@ -118,7 +171,6 @@ function createProject(data) {
   
   projects.push(project);
   
-  // Set as active if it's the first project
   if (projects.length === 1) {
     activeProjectId = project.id;
   }
@@ -127,9 +179,6 @@ function createProject(data) {
   return project;
 }
 
-/**
- * Update an existing project
- */
 function updateProject(id, data) {
   const index = projects.findIndex(p => p.id === id);
   if (index === -1) return null;
@@ -144,13 +193,9 @@ function updateProject(id, data) {
   return projects[index];
 }
 
-/**
- * Delete a project
- */
 function deleteProject(id) {
   projects = projects.filter(p => p.id !== id);
   
-  // Clear active if deleted
   if (activeProjectId === id) {
     activeProjectId = projects.length > 0 ? projects[0].id : null;
   }
@@ -158,9 +203,6 @@ function deleteProject(id) {
   saveProjects();
 }
 
-/**
- * Set active project
- */
 function setActiveProject(id) {
   activeProjectId = id;
   saveProjects();
@@ -168,40 +210,23 @@ function setActiveProject(id) {
   updateQuickActions();
 }
 
-/**
- * Get active project
- */
 function getActiveProject() {
   return projects.find(p => p.id === activeProjectId) || null;
 }
 
-/**
- * Generate context prompt from project
- */
 function generateContextPrompt(project) {
   if (!project) return '';
   
   const sections = [];
-  
   sections.push('You are continuing an existing project.');
   sections.push('');
   sections.push('Context:');
   
-  if (project.goal) {
-    sections.push(`- Goal: ${project.goal}`);
-  }
-  if (project.current_progress) {
-    sections.push(`- Current Progress: ${project.current_progress}`);
-  }
-  if (project.constraints) {
-    sections.push(`- Constraints: ${project.constraints}`);
-  }
-  if (project.tech_stack) {
-    sections.push(`- Tech Stack: ${project.tech_stack}`);
-  }
-  if (project.notes) {
-    sections.push(`- Notes: ${project.notes}`);
-  }
+  if (project.goal) sections.push(`- Goal: ${project.goal}`);
+  if (project.current_progress) sections.push(`- Current Progress: ${project.current_progress}`);
+  if (project.constraints) sections.push(`- Constraints: ${project.constraints}`);
+  if (project.tech_stack) sections.push(`- Tech Stack: ${project.tech_stack}`);
+  if (project.notes) sections.push(`- Notes: ${project.notes}`);
   
   sections.push('');
   sections.push('Do not ask onboarding questions.');
@@ -210,11 +235,29 @@ function generateContextPrompt(project) {
   return sections.join('\n');
 }
 
+// ===== CAPTURED CONTEXT FUNCTIONS =====
+
+function deleteCapturedContext(id) {
+  capturedContexts = capturedContexts.filter(c => c.id !== id);
+  saveCapturedContexts();
+}
+
+function getCapturedContext(id) {
+  return capturedContexts.find(c => c.id === id) || null;
+}
+
+function updateCapturedBadge() {
+  const count = capturedContexts.length;
+  if (count > 0) {
+    elements.capturedCount.textContent = count;
+    elements.capturedCount.classList.remove('hidden');
+  } else {
+    elements.capturedCount.classList.add('hidden');
+  }
+}
+
 // ===== RENDER FUNCTIONS =====
 
-/**
- * Render the project list
- */
 function renderProjectList() {
   if (projects.length === 0) {
     elements.projectList.innerHTML = '';
@@ -225,7 +268,6 @@ function renderProjectList() {
   
   elements.emptyState.classList.add('hidden');
   
-  // Sort by updated date
   const sortedProjects = [...projects].sort((a, b) => b.updated - a.updated);
   
   elements.projectList.innerHTML = sortedProjects.map(project => {
@@ -259,9 +301,49 @@ function renderProjectList() {
   updateQuickActions();
 }
 
-/**
- * Update quick actions visibility
- */
+function renderCapturedList() {
+  if (capturedContexts.length === 0) {
+    elements.capturedList.innerHTML = '';
+    elements.capturedEmptyState.classList.remove('hidden');
+    return;
+  }
+  
+  elements.capturedEmptyState.classList.add('hidden');
+  
+  const sortedContexts = [...capturedContexts].sort((a, b) => b.timestamp - a.timestamp);
+  
+  elements.capturedList.innerHTML = sortedContexts.map(ctx => {
+    const time = getRelativeTime(ctx.timestamp);
+    const platformClass = ctx.platform.toLowerCase().replace(/\s+/g, '-');
+    
+    return `
+      <div class="captured-card" data-id="${ctx.id}">
+        <div class="captured-header">
+          <span class="platform-badge ${platformClass}">${ctx.platform}</span>
+          <span class="captured-time">${time}</span>
+        </div>
+        <div class="captured-title">${escapeHtml(ctx.title || 'Untitled Chat')}</div>
+        <div class="captured-summary">${escapeHtml(ctx.summary || 'No summary available')}</div>
+        <div class="captured-actions">
+          <button class="use-btn" title="Use this context">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            Use
+          </button>
+          <button class="view-btn" title="View details">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            View
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function updateQuickActions() {
   const hasActive = activeProjectId && projects.length > 0;
   if (hasActive && currentView === 'list') {
@@ -273,19 +355,25 @@ function updateQuickActions() {
 
 // ===== VIEW FUNCTIONS =====
 
-/**
- * Switch between views
- */
 function showView(view) {
   currentView = view;
   
   elements.projectListView.classList.remove('active');
   elements.projectFormView.classList.remove('active');
   elements.captureView.classList.remove('active');
+  elements.capturedView.classList.remove('active');
+  elements.contextDetailView.classList.remove('active');
   
   switch (view) {
     case 'list':
       elements.projectListView.classList.add('active');
+      elements.tabProjects.classList.add('active');
+      elements.tabCaptured.classList.remove('active');
+      break;
+    case 'captured':
+      elements.capturedView.classList.add('active');
+      elements.tabCaptured.classList.add('active');
+      elements.tabProjects.classList.remove('active');
       break;
     case 'form':
       elements.projectFormView.classList.add('active');
@@ -293,14 +381,14 @@ function showView(view) {
     case 'capture':
       elements.captureView.classList.add('active');
       break;
+    case 'contextDetail':
+      elements.contextDetailView.classList.add('active');
+      break;
   }
   
   updateQuickActions();
 }
 
-/**
- * Show form for new project
- */
 function showNewProjectForm() {
   elements.formTitle.textContent = 'New Project';
   elements.projectForm.reset();
@@ -308,9 +396,6 @@ function showNewProjectForm() {
   showView('form');
 }
 
-/**
- * Show form for editing project
- */
 function showEditProjectForm(id) {
   const project = projects.find(p => p.id === id);
   if (!project) return;
@@ -327,9 +412,6 @@ function showEditProjectForm(id) {
   showView('form');
 }
 
-/**
- * Show capture view
- */
 function showCaptureView() {
   if (!activeProjectId) {
     showToast('Select a project first', 'error');
@@ -341,9 +423,32 @@ function showCaptureView() {
   showView('capture');
 }
 
+function showContextDetail(id) {
+  const ctx = getCapturedContext(id);
+  if (!ctx) return;
+  
+  selectedContextId = id;
+  elements.contextDetailTitle.textContent = ctx.title || 'Captured Context';
+  elements.contextPlatform.textContent = ctx.platform;
+  elements.contextPlatform.className = 'platform-badge ' + ctx.platform.toLowerCase().replace(/\s+/g, '-');
+  elements.contextTime.textContent = getRelativeTime(ctx.timestamp);
+  elements.contextContent.value = ctx.content;
+  
+  showView('contextDetail');
+}
+
 // ===== EVENT LISTENERS =====
 
 function setupEventListeners() {
+  // Tabs
+  elements.tabProjects.addEventListener('click', () => showView('list'));
+  elements.tabCaptured.addEventListener('click', () => {
+    loadData().then(() => {
+      renderCapturedList();
+      showView('captured');
+    });
+  });
+  
   // Add project buttons
   elements.addProjectBtn.addEventListener('click', showNewProjectForm);
   elements.emptyAddBtn.addEventListener('click', showNewProjectForm);
@@ -352,12 +457,16 @@ function setupEventListeners() {
   elements.backBtn.addEventListener('click', () => showView('list'));
   elements.cancelBtn.addEventListener('click', () => showView('list'));
   elements.captureBackBtn.addEventListener('click', () => showView('list'));
+  elements.contextBackBtn.addEventListener('click', () => showView('captured'));
   
   // Form submission
   elements.projectForm.addEventListener('submit', handleFormSubmit);
   
   // Project list interactions
   elements.projectList.addEventListener('click', handleProjectListClick);
+  
+  // Captured list interactions
+  elements.capturedList.addEventListener('click', handleCapturedListClick);
   
   // Quick actions
   elements.injectBtn.addEventListener('click', handleInject);
@@ -368,11 +477,19 @@ function setupEventListeners() {
   elements.captureSelection.addEventListener('click', handleCaptureSelection);
   elements.captureConversation.addEventListener('click', handleCaptureConversation);
   elements.saveCaptured.addEventListener('click', handleSaveCaptured);
+  
+  // Context detail actions
+  elements.injectContextBtn.addEventListener('click', handleInjectContext);
+  elements.copyContextBtn.addEventListener('click', handleCopyContext);
+  elements.deleteContextBtn.addEventListener('click', handleDeleteContext);
+  
+  // Auto-capture toggle
+  elements.autoCaptureToggle?.addEventListener('change', (e) => {
+    saveSettings({ autoCapture: e.target.checked });
+    showToast(e.target.checked ? 'Auto-capture enabled' : 'Auto-capture disabled');
+  });
 }
 
-/**
- * Handle form submission
- */
 function handleFormSubmit(e) {
   e.preventDefault();
   
@@ -400,22 +517,17 @@ function handleFormSubmit(e) {
   showView('list');
 }
 
-/**
- * Handle clicks on project list
- */
 function handleProjectListClick(e) {
   const card = e.target.closest('.project-card');
   if (!card) return;
   
   const id = card.dataset.id;
   
-  // Check if edit button was clicked
   if (e.target.closest('.edit-btn')) {
     showEditProjectForm(id);
     return;
   }
   
-  // Check if delete button was clicked
   if (e.target.closest('.delete-btn')) {
     if (confirm('Delete this project?')) {
       deleteProject(id);
@@ -425,14 +537,30 @@ function handleProjectListClick(e) {
     return;
   }
   
-  // Otherwise, set as active
   setActiveProject(id);
   showToast('Project activated');
 }
 
-/**
- * Handle inject button click
- */
+function handleCapturedListClick(e) {
+  const card = e.target.closest('.captured-card');
+  if (!card) return;
+  
+  const id = card.dataset.id;
+  
+  if (e.target.closest('.use-btn')) {
+    handleUseContext(id);
+    return;
+  }
+  
+  if (e.target.closest('.view-btn')) {
+    showContextDetail(id);
+    return;
+  }
+  
+  // Click on card itself opens detail
+  showContextDetail(id);
+}
+
 async function handleInject() {
   const project = getActiveProject();
   if (!project) {
@@ -441,9 +569,69 @@ async function handleInject() {
   }
   
   const prompt = generateContextPrompt(project);
+  await injectOrCopy(prompt);
+}
+
+async function handleCopy() {
+  const project = getActiveProject();
+  if (!project) {
+    showToast('No active project', 'error');
+    return;
+  }
   
+  const prompt = generateContextPrompt(project);
+  await copyToClipboard(prompt);
+  showToast('Copied to clipboard', 'success');
+}
+
+async function handleUseContext(id) {
+  const ctx = getCapturedContext(id);
+  if (!ctx) return;
+  
+  const prompt = formatCapturedContext(ctx);
+  await injectOrCopy(prompt);
+}
+
+async function handleInjectContext() {
+  const ctx = getCapturedContext(selectedContextId);
+  if (!ctx) return;
+  
+  const prompt = formatCapturedContext(ctx);
+  await injectOrCopy(prompt);
+}
+
+async function handleCopyContext() {
+  const ctx = getCapturedContext(selectedContextId);
+  if (!ctx) return;
+  
+  const prompt = formatCapturedContext(ctx);
+  await copyToClipboard(prompt);
+  showToast('Copied to clipboard', 'success');
+}
+
+function handleDeleteContext() {
+  if (confirm('Delete this captured context?')) {
+    deleteCapturedContext(selectedContextId);
+    renderCapturedList();
+    showView('captured');
+    showToast('Context deleted');
+  }
+}
+
+function formatCapturedContext(ctx) {
+  return `Continue from this previous conversation context:
+
+Platform: ${ctx.platform}
+Captured: ${new Date(ctx.timestamp).toLocaleString()}
+
+Previous conversation:
+${ctx.content}
+
+Do not re-explain or ask onboarding questions. Continue from where we left off.`;
+}
+
+async function injectOrCopy(prompt) {
   try {
-    // Send message to content script
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     
     if (!tab) {
@@ -457,7 +645,6 @@ async function handleInject() {
       prompt: prompt
     }, (response) => {
       if (chrome.runtime.lastError || !response?.success) {
-        // Fallback to clipboard
         copyToClipboard(prompt);
         showToast('Copied to clipboard');
       } else {
@@ -470,24 +657,6 @@ async function handleInject() {
   }
 }
 
-/**
- * Handle copy button click
- */
-async function handleCopy() {
-  const project = getActiveProject();
-  if (!project) {
-    showToast('No active project', 'error');
-    return;
-  }
-  
-  const prompt = generateContextPrompt(project);
-  await copyToClipboard(prompt);
-  showToast('Copied to clipboard', 'success');
-}
-
-/**
- * Handle capture selection
- */
 async function handleCaptureSelection() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -515,9 +684,6 @@ async function handleCaptureSelection() {
   }
 }
 
-/**
- * Handle capture conversation
- */
 async function handleCaptureConversation() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -545,9 +711,6 @@ async function handleCaptureConversation() {
   }
 }
 
-/**
- * Handle save captured content
- */
 function handleSaveCaptured() {
   const project = getActiveProject();
   if (!project) {
@@ -574,9 +737,6 @@ function handleSaveCaptured() {
 
 // ===== UTILITY FUNCTIONS =====
 
-/**
- * Copy text to clipboard
- */
 async function copyToClipboard(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -587,9 +747,6 @@ async function copyToClipboard(text) {
   }
 }
 
-/**
- * Show toast notification
- */
 function showToast(message, type = '') {
   elements.toast.textContent = message;
   elements.toast.className = 'toast show';
@@ -602,11 +759,24 @@ function showToast(message, type = '') {
   }, 2500);
 }
 
-/**
- * Escape HTML to prevent XSS
- */
 function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function getRelativeTime(timestamp) {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  
+  return new Date(timestamp).toLocaleDateString();
 }
