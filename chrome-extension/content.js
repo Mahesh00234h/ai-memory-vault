@@ -46,18 +46,27 @@ function safeSendMessage(message) {
   }
 }
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (!isExtensionValid()) return;
-  
-  if (request.type === 'GET_CONVERSATION') {
-    sendResponse({ text: extractConversation(detectPlatform()), platform: detectPlatform() });
-  } else if (request.type === 'INJECT_CONTEXT') {
-    sendResponse({ success: injectContext(request.context) });
-  } else if (request.type === 'PING') {
-    sendResponse({ pong: true });
-  }
-  return true;
-});
+// Wrap listener registration in try-catch to handle invalidated context
+try {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (!isExtensionValid()) return false;
+    
+    try {
+      if (request.type === 'GET_CONVERSATION') {
+        sendResponse({ text: extractConversation(detectPlatform()), platform: detectPlatform() });
+      } else if (request.type === 'INJECT_CONTEXT') {
+        sendResponse({ success: injectContext(request.context) });
+      } else if (request.type === 'PING') {
+        sendResponse({ pong: true });
+      }
+    } catch (e) {
+      console.log('AI Context Bridge: Error handling message', e.message);
+    }
+    return true;
+  });
+} catch (e) {
+  console.log('AI Context Bridge: Failed to register message listener', e.message);
+}
 
 function extractConversation(platform) {
   let messages = [];
