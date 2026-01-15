@@ -71,22 +71,43 @@ async function addToSyncQueue(item) {
   }
 }
 
-// Process sync queue
+// Sync progress tracking
+let syncProgress = { total: 0, completed: 0, current: null };
+
+function broadcastSyncProgress() {
+  chrome.runtime.sendMessage({ 
+    type: 'SYNC_PROGRESS_UPDATE', 
+    progress: { ...syncProgress, queueLength: syncQueue.length }
+  }).catch(() => {}); // Ignore if popup is closed
+}
+
+// Process sync queue with progress updates
 async function processSyncQueue() {
   if (isSyncing || syncQueue.length === 0) return;
   
   isSyncing = true;
+  syncProgress = { total: syncQueue.length, completed: 0, current: null };
+  broadcastSyncProgress();
+  
   console.log('AI Context Bridge: Processing sync queue', syncQueue.length, 'items');
   
   const storage = await chrome.storage.local.get(['userId']);
   if (!storage.userId || storage.userId.startsWith('local_')) {
     isSyncing = false;
+    syncProgress = { total: 0, completed: 0, current: null };
+    broadcastSyncProgress();
     return;
   }
   
   const failedItems = [];
+  const queueCopy = [...syncQueue];
   
-  for (const item of [...syncQueue]) {
+  for (let i = 0; i < queueCopy.length; i++) {
+    const item = queueCopy[i];
+    syncProgress.current = item.data?.title || `Item ${i + 1}`;
+    syncProgress.completed = i;
+    broadcastSyncProgress();
+    
     try {
       if (item.type === 'create') {
         const response = await fetch(`${SUPABASE_URL}/rest/v1/captured_contexts`, {
@@ -106,9 +127,9 @@ async function processSyncQueue() {
             // Update local context with cloudId
             const r = await chrome.storage.local.get('capturedContexts');
             const contexts = r.capturedContexts || [];
-            const i = contexts.findIndex(c => c.id === item.localId);
-            if (i !== -1) {
-              contexts[i].cloudId = result[0].id;
+            const idx = contexts.findIndex(c => c.id === item.localId);
+            if (idx !== -1) {
+              contexts[idx].cloudId = result[0].id;
               await chrome.storage.local.set({ capturedContexts: contexts });
             }
           }
@@ -132,11 +153,23 @@ async function processSyncQueue() {
       console.error('Sync queue item failed:', e);
       failedItems.push(item);
     }
+    
+    // Small delay between items to not overwhelm
+    await new Promise(r => setTimeout(r, 100));
   }
   
   syncQueue = failedItems;
   await chrome.storage.local.set({ syncQueue });
   isSyncing = false;
+  
+  syncProgress = { total: queueCopy.length, completed: queueCopy.length, current: null };
+  broadcastSyncProgress();
+  
+  // Clear progress after a moment
+  setTimeout(() => {
+    syncProgress = { total: 0, completed: 0, current: null };
+    broadcastSyncProgress();
+  }, 2000);
   
   console.log('AI Context Bridge: Queue processed, remaining:', syncQueue.length);
 }
@@ -184,7 +217,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   else if (req.type === 'CAPTURE_CURRENT') captureCurrentTab().then(sendResponse);
   else if (req.type === 'CONTENT_UPDATED') handleContentUpdate(sender.tab, req.platform).then(sendResponse);
   else if (req.type === 'SYNC_ALL_CHATS') syncAllChatsFromPage(sender.tab).then(sendResponse);
-  else if (req.type === 'GET_SYNC_STATUS') sendResponse({ isOnline, queueLength: syncQueue.length });
+  else if (req.type === 'GET_SYNC_STATUS') sendResponse({ isOnline, queueLength: syncQueue.length, syncProgress });
   else if (req.type === 'PROCESS_SYNC_QUEUE') processSyncQueue().then(() => sendResponse({ success: true }));
   return true;
 });
@@ -373,37 +406,47 @@ async function updateRawInCloud(cloudId, rawContent) {
 }
 
 // ===== SYNC ALL CHATS ON PAGE LOAD =====
+// Prioritizes current chat, then syncs others in background
 async function syncAllChatsFromPage(tab) {
   if (!tab?.id || !tab?.url) return { success: false };
   
   const platform = detectPlatform(tab.url);
   if (!platform) return { success: false, reason: 'not_ai_platform' };
   
-  console.log('AI Context Bridge: Syncing all chats from', platform);
+  console.log('AI Context Bridge: Syncing current chat from', platform);
   
-  // First, capture the current chat
+  // PRIORITY 1: Capture and display the current chat immediately
   await performCapture(tab.id, tab.url, platform, false);
   
-  // Get all local contexts that need syncing (no cloudId or older than last sync)
+  // Return immediately so UI can show the current chat
+  // Schedule background sync for other chats
+  setTimeout(() => backgroundSyncOtherChats(), 500);
+  
+  return { success: true, message: 'Current chat captured, syncing others in background' };
+}
+
+// Background sync for other chats (non-blocking)
+async function backgroundSyncOtherChats() {
   const r = await chrome.storage.local.get(['capturedContexts', 'userId']);
   const contexts = r.capturedContexts || [];
   const userId = r.userId;
   
   if (!userId || userId.startsWith('local_')) {
-    return { success: false, reason: 'no_user' };
+    console.log('AI Context Bridge: No cloud user, skipping background sync');
+    return;
   }
   
-  // Find contexts that need to be synced
+  // Find contexts that need to be synced (no cloudId)
   const unsyncedContexts = contexts.filter(c => !c.cloudId);
   
   if (unsyncedContexts.length === 0) {
     console.log('AI Context Bridge: All contexts already synced');
-    return { success: true, synced: 0 };
+    return;
   }
   
-  console.log('AI Context Bridge: Found', unsyncedContexts.length, 'unsynced contexts');
+  console.log('AI Context Bridge: Background syncing', unsyncedContexts.length, 'unsynced contexts');
   
-  // Queue all unsynced contexts for cloud sync
+  // Queue all unsynced contexts for cloud sync (they'll be processed one by one)
   for (const ctx of unsyncedContexts) {
     await addToSyncQueue({
       type: 'create',
@@ -425,12 +468,10 @@ async function syncAllChatsFromPage(tab) {
     });
   }
   
-  // Process queue if online
+  // Process queue if online (will happen automatically with progress updates)
   if (isOnline) {
     processSyncQueue();
   }
-  
-  return { success: true, queued: unsyncedContexts.length };
 }
 
 // Legacy function for backward compatibility

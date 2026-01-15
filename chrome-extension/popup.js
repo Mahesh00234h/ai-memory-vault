@@ -354,12 +354,19 @@ async function syncWithCloud() {
 }
 
 // ===== OFFLINE STATUS & QUEUE =====
+let syncProgress = { total: 0, completed: 0, current: null };
 
 async function updateSyncStatus() {
   try {
     const status = await chrome.runtime.sendMessage({ type: 'GET_SYNC_STATUS' });
     isOnline = status?.isOnline ?? navigator.onLine;
     syncQueueLength = status?.queueLength ?? 0;
+    
+    // Update sync progress if available
+    if (status?.syncProgress) {
+      syncProgress = status.syncProgress;
+      updateSyncProgressUI();
+    }
     
     // Update UI
     if (elements.syncStatusBtn) {
@@ -368,9 +375,11 @@ async function updateSyncStatus() {
         elements.syncStatusBtn.title = 'Offline - changes queued';
       } else {
         elements.syncStatusBtn.classList.remove('offline');
-        if (syncQueueLength > 0) {
+        if (syncQueueLength > 0 || syncProgress.total > 0) {
           elements.syncStatusBtn.classList.add('has-queue');
-          elements.syncStatusBtn.title = `${syncQueueLength} items queued for sync`;
+          elements.syncStatusBtn.title = syncProgress.total > 0 
+            ? `Syncing ${syncProgress.completed}/${syncProgress.total}...`
+            : `${syncQueueLength} items queued for sync`;
         } else {
           elements.syncStatusBtn.classList.remove('has-queue');
           elements.syncStatusBtn.title = 'Synced';
@@ -382,6 +391,44 @@ async function updateSyncStatus() {
   }
 }
 
+function updateSyncProgressUI() {
+  const progressBar = document.getElementById('syncProgressBar');
+  const progressText = document.getElementById('syncProgressText');
+  const progressContainer = document.getElementById('syncProgressContainer');
+  
+  if (!progressContainer) return;
+  
+  if (syncProgress.total > 0 && syncProgress.completed < syncProgress.total) {
+    progressContainer.classList.remove('hidden');
+    const percent = Math.round((syncProgress.completed / syncProgress.total) * 100);
+    if (progressBar) progressBar.style.width = `${percent}%`;
+    if (progressText) {
+      const currentItem = syncProgress.current ? `: ${syncProgress.current.substring(0, 25)}...` : '';
+      progressText.textContent = `Syncing ${syncProgress.completed + 1}/${syncProgress.total}${currentItem}`;
+    }
+  } else if (syncProgress.total > 0 && syncProgress.completed === syncProgress.total) {
+    // Completed
+    progressContainer.classList.remove('hidden');
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressText) progressText.textContent = `Synced ${syncProgress.total} items ✓`;
+    setTimeout(() => {
+      progressContainer.classList.add('hidden');
+    }, 2000);
+  } else {
+    progressContainer.classList.add('hidden');
+  }
+}
+
+// Listen for sync progress updates from background
+chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
+  if (req.type === 'SYNC_PROGRESS_UPDATE') {
+    syncProgress = req.progress;
+    syncQueueLength = req.progress.queueLength;
+    updateSyncProgressUI();
+    updateSyncStatus();
+  }
+});
+
 async function forceSyncQueue() {
   if (!isOnline) {
     showToast('Currently offline', 'error');
@@ -389,10 +436,9 @@ async function forceSyncQueue() {
   }
   
   try {
-    showToast('Syncing...', 'info');
+    showToast('Starting sync...', 'info');
     await chrome.runtime.sendMessage({ type: 'PROCESS_SYNC_QUEUE' });
     await updateSyncStatus();
-    showToast('Sync complete!', 'success');
   } catch (e) {
     showToast('Sync failed', 'error');
   }

@@ -54,6 +54,16 @@
 
       <!-- Main Views -->
       <main id="mainContent">
+        <!-- Sync Progress Bar -->
+        <div id="syncProgressContainer" class="sync-progress-container hidden">
+          <div class="sync-progress-info">
+            <span id="syncProgressText">Syncing...</span>
+          </div>
+          <div class="sync-progress-track">
+            <div id="syncProgressBar" class="sync-progress-fill"></div>
+          </div>
+        </div>
+
         <!-- Captured Contexts View (DEFAULT) -->
         <section id="capturedView" class="view active">
           <div class="auto-capture-header">
