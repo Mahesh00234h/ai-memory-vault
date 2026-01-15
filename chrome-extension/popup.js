@@ -15,6 +15,7 @@ let teamContexts = [];
 let teamSummaries = [];
 let isOnline = navigator.onLine;
 let lastSyncTime = null;
+let syncQueueLength = 0;
 
 // ===== DOM ELEMENTS =====
 const elements = {
@@ -246,6 +247,7 @@ async function showMainApp() {
   updateTeamView();
   setupEventListeners();
   updateCapturedBadge();
+  updateSyncStatus();
   
   // Try to sync with cloud (don't block on failure)
   if (window.API && currentUser && !currentUser.id.startsWith('local_')) {
@@ -350,6 +352,67 @@ async function syncWithCloud() {
     elements.syncStatusBtn?.classList.remove('syncing');
   }
 }
+
+// ===== OFFLINE STATUS & QUEUE =====
+
+async function updateSyncStatus() {
+  try {
+    const status = await chrome.runtime.sendMessage({ type: 'GET_SYNC_STATUS' });
+    isOnline = status?.isOnline ?? navigator.onLine;
+    syncQueueLength = status?.queueLength ?? 0;
+    
+    // Update UI
+    if (elements.syncStatusBtn) {
+      if (!isOnline) {
+        elements.syncStatusBtn.classList.add('offline');
+        elements.syncStatusBtn.title = 'Offline - changes queued';
+      } else {
+        elements.syncStatusBtn.classList.remove('offline');
+        if (syncQueueLength > 0) {
+          elements.syncStatusBtn.classList.add('has-queue');
+          elements.syncStatusBtn.title = `${syncQueueLength} items queued for sync`;
+        } else {
+          elements.syncStatusBtn.classList.remove('has-queue');
+          elements.syncStatusBtn.title = 'Synced';
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to get sync status:', e);
+  }
+}
+
+async function forceSyncQueue() {
+  if (!isOnline) {
+    showToast('Currently offline', 'error');
+    return;
+  }
+  
+  try {
+    showToast('Syncing...', 'info');
+    await chrome.runtime.sendMessage({ type: 'PROCESS_SYNC_QUEUE' });
+    await updateSyncStatus();
+    showToast('Sync complete!', 'success');
+  } catch (e) {
+    showToast('Sync failed', 'error');
+  }
+}
+
+// Update sync status periodically
+setInterval(updateSyncStatus, 10000);
+
+// Listen for online/offline events
+window.addEventListener('online', () => {
+  isOnline = true;
+  updateSyncStatus();
+  showToast('Back online!', 'success');
+});
+
+window.addEventListener('offline', () => {
+  isOnline = false;
+  updateSyncStatus();
+  showToast('You are offline', 'info');
+});
 
 // ===== PROJECT FUNCTIONS =====
 
