@@ -1,6 +1,7 @@
 /**
  * AI Context Bridge - API Module
  * Handles all communication with Lovable Cloud backend
+ * Includes Realtime subscriptions for team sync
  */
 
 const SUPABASE_URL = 'https://meqqbjhfmrpsiqsexcif.supabase.co';
@@ -10,6 +11,15 @@ const headers = {
   'Content-Type': 'application/json',
   'apikey': SUPABASE_ANON_KEY,
   'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+};
+
+// ===== REALTIME STATE =====
+let realtimeSocket = null;
+let realtimeChannel = null;
+let realtimeCallbacks = {
+  onInsert: null,
+  onUpdate: null,
+  onDelete: null
 };
 
 // ===== USER API =====
@@ -222,7 +232,7 @@ async function syncContextsToCloud(userId, localContexts) {
   
   for (const local of localContexts) {
     if (local.cloudId) {
-      // Update existing
+      // Update existing - only send raw content to cloud
       try {
         await updateContext(local.cloudId, {
           title: local.title,
@@ -233,7 +243,7 @@ async function syncContextsToCloud(userId, localContexts) {
           decisions: local.decisions || [],
           open_questions: local.openQuestions || [],
           raw_content: local.rawContent,
-          message_count: local.messageCount?.user + local.messageCount?.ai || 0,
+          message_count: typeof local.messageCount === 'number' ? local.messageCount : (local.messageCount?.user + local.messageCount?.ai || 0),
           platform: local.platform
         });
         results.push({ id: local.id, synced: true });
@@ -241,7 +251,7 @@ async function syncContextsToCloud(userId, localContexts) {
         results.push({ id: local.id, synced: false, error: e.message });
       }
     } else {
-      // Create new
+      // Create new - save full context including raw content to cloud
       try {
         const cloud = await saveContext({
           user_id: userId,
@@ -254,7 +264,7 @@ async function syncContextsToCloud(userId, localContexts) {
           decisions: local.decisions || [],
           open_questions: local.openQuestions || [],
           raw_content: local.rawContent,
-          message_count: local.messageCount?.user + local.messageCount?.ai || 0,
+          message_count: typeof local.messageCount === 'number' ? local.messageCount : (local.messageCount?.user + local.messageCount?.ai || 0),
           platform: local.platform
         });
         results.push({ id: local.id, cloudId: cloud.id, synced: true });
@@ -269,6 +279,104 @@ async function syncContextsToCloud(userId, localContexts) {
 
 async function fetchCloudContexts(userId) {
   return await getUserContexts(userId);
+}
+
+// ===== REALTIME SUBSCRIPTIONS =====
+
+function subscribeToTeamContexts(teamId, callbacks) {
+  // Store callbacks for handling events
+  realtimeCallbacks = { ...realtimeCallbacks, ...callbacks };
+  
+  // Create WebSocket connection to Supabase Realtime
+  const wsUrl = SUPABASE_URL.replace('https://', 'wss://') + '/realtime/v1/websocket?apikey=' + SUPABASE_ANON_KEY + '&vsn=1.0.0';
+  
+  if (realtimeSocket) {
+    realtimeSocket.close();
+  }
+  
+  realtimeSocket = new WebSocket(wsUrl);
+  
+  realtimeSocket.onopen = () => {
+    console.log('Realtime connected');
+    
+    // Join the channel for team contexts
+    const joinMessage = {
+      topic: `realtime:public:captured_contexts:team_id=eq.${teamId}`,
+      event: 'phx_join',
+      payload: {
+        config: {
+          broadcast: { self: false },
+          presence: { key: '' },
+          postgres_changes: [
+            {
+              event: '*',
+              schema: 'public',
+              table: 'captured_contexts',
+              filter: `team_id=eq.${teamId}`
+            }
+          ]
+        }
+      },
+      ref: '1'
+    };
+    
+    realtimeSocket.send(JSON.stringify(joinMessage));
+    
+    // Start heartbeat
+    setInterval(() => {
+      if (realtimeSocket?.readyState === WebSocket.OPEN) {
+        realtimeSocket.send(JSON.stringify({
+          topic: 'phoenix',
+          event: 'heartbeat',
+          payload: {},
+          ref: Date.now().toString()
+        }));
+      }
+    }, 30000);
+  };
+  
+  realtimeSocket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(event.data);
+      
+      if (message.event === 'postgres_changes') {
+        const payload = message.payload;
+        
+        if (payload.eventType === 'INSERT' && realtimeCallbacks.onInsert) {
+          realtimeCallbacks.onInsert(payload.new);
+        } else if (payload.eventType === 'UPDATE' && realtimeCallbacks.onUpdate) {
+          realtimeCallbacks.onUpdate(payload.new);
+        } else if (payload.eventType === 'DELETE' && realtimeCallbacks.onDelete) {
+          realtimeCallbacks.onDelete(payload.old);
+        }
+      }
+    } catch (e) {
+      console.error('Realtime message error:', e);
+    }
+  };
+  
+  realtimeSocket.onerror = (error) => {
+    console.error('Realtime error:', error);
+  };
+  
+  realtimeSocket.onclose = () => {
+    console.log('Realtime disconnected');
+  };
+  
+  return () => {
+    if (realtimeSocket) {
+      realtimeSocket.close();
+      realtimeSocket = null;
+    }
+  };
+}
+
+function unsubscribeFromRealtime() {
+  if (realtimeSocket) {
+    realtimeSocket.close();
+    realtimeSocket = null;
+  }
+  realtimeCallbacks = { onInsert: null, onUpdate: null, onDelete: null };
 }
 
 // Export for use in popup.js
@@ -290,6 +398,8 @@ if (typeof window !== 'undefined') {
     createTeamSummary,
     getTeamSummaries,
     syncContextsToCloud,
-    fetchCloudContexts
+    fetchCloudContexts,
+    subscribeToTeamContexts,
+    unsubscribeFromRealtime
   };
 }
