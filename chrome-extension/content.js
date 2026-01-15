@@ -142,5 +142,24 @@ function setupObserver() {
   observer.observe(document.body, { childList: true, subtree: true });
 }
 
+// Trigger batch sync of all chats when landing on AI page
+function triggerBatchSync() {
+  if (!isExtensionValid()) return;
+  
+  const platform = detectPlatform();
+  if (!platform) return;
+  
+  console.log('AI Context Bridge: Triggering batch sync on', platform);
+  safeSendMessage({ type: 'SYNC_ALL_CHATS', platform });
+}
+
 setTimeout(setupObserver, 2000);
-setTimeout(() => { if (isExtensionValid()) { const c = extractConversation(detectPlatform()); if (c) lastHash = hashContent(c); } }, 3000);
+setTimeout(() => { 
+  if (isExtensionValid()) { 
+    const c = extractConversation(detectPlatform()); 
+    if (c) lastHash = hashContent(c); 
+  } 
+}, 3000);
+
+// Trigger batch sync when page fully loads
+setTimeout(triggerBatchSync, 5000);

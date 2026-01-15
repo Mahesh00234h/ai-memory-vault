@@ -1096,3 +1096,91 @@ main {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
 }
+
+/* ===== SYNC STATUS INDICATORS ===== */
+.sync-status-btn.offline {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: var(--accent-danger);
+  color: var(--accent-danger);
+}
+
+.sync-status-btn.offline::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: var(--accent-danger);
+  border-radius: 50%;
+  border: 2px solid var(--bg-primary);
+}
+
+.sync-status-btn.has-queue {
+  position: relative;
+}
+
+.sync-status-btn.has-queue::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: var(--accent-warning);
+  border-radius: 50%;
+  border: 2px solid var(--bg-primary);
+  animation: pulse 2s infinite;
+}
+
+.sync-status-btn.syncing {
+  animation: spin 1s linear infinite;
+}
+
+.sync-status-btn.synced {
+  color: var(--accent-success);
+  border-color: var(--accent-success);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Offline banner */
+.offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--accent-danger);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.offline-banner.hidden {
+  display: none;
+}
+
+/* Queue indicator in header */
+.queue-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 2px 6px;
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--accent-warning);
+  font-size: 11px;
+  border-radius: var(--radius-sm);
+}
+
+.queue-indicator.hidden {
+  display: none;
+}
