@@ -466,11 +466,20 @@ function updateCapturedBadge() {
 
 // ===== TEAM FUNCTIONS =====
 
+// Realtime subscription cleanup function
+let unsubscribeRealtime = null;
+
 async function updateTeamView() {
   if (!currentTeam) {
     elements.noTeamView?.classList.remove('hidden');
     elements.teamActiveView?.classList.add('hidden');
     elements.teamBadge?.classList.add('hidden');
+    
+    // Cleanup realtime subscription
+    if (unsubscribeRealtime) {
+      unsubscribeRealtime();
+      unsubscribeRealtime = null;
+    }
     return;
   }
   
@@ -489,12 +498,56 @@ async function updateTeamView() {
   renderTeamContexts();
   
   // Update badge
+  updateTeamBadge();
+  
+  // Setup realtime subscription for instant team sync
+  setupRealtimeSubscription();
+}
+
+function updateTeamBadge() {
   if (teamContexts.length > 0) {
     elements.teamBadge.textContent = teamContexts.length;
     elements.teamBadge.classList.remove('hidden');
   } else {
     elements.teamBadge.classList.add('hidden');
   }
+}
+
+function setupRealtimeSubscription() {
+  if (!currentTeam || !window.API?.subscribeToTeamContexts) return;
+  
+  // Cleanup existing subscription
+  if (unsubscribeRealtime) {
+    unsubscribeRealtime();
+  }
+  
+  // Subscribe to team context changes
+  unsubscribeRealtime = window.API.subscribeToTeamContexts(currentTeam.id, {
+    onInsert: (newContext) => {
+      console.log('Realtime: New context shared', newContext);
+      // Add to teamContexts if not already present
+      if (!teamContexts.find(c => c.id === newContext.id)) {
+        teamContexts.unshift(newContext);
+        renderTeamContexts();
+        updateTeamBadge();
+        showToast('New context shared to team!', 'info');
+      }
+    },
+    onUpdate: (updatedContext) => {
+      console.log('Realtime: Context updated', updatedContext);
+      const idx = teamContexts.findIndex(c => c.id === updatedContext.id);
+      if (idx !== -1) {
+        teamContexts[idx] = updatedContext;
+        renderTeamContexts();
+      }
+    },
+    onDelete: (deletedContext) => {
+      console.log('Realtime: Context deleted', deletedContext);
+      teamContexts = teamContexts.filter(c => c.id !== deletedContext.id);
+      renderTeamContexts();
+      updateTeamBadge();
+    }
+  });
 }
 
 function renderTeamContexts() {
