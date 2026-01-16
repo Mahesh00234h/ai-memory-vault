@@ -1531,7 +1531,7 @@ async function injectOrCopy(prompt) {
     
     chrome.tabs.sendMessage(tab.id, {
       type: 'INJECT_CONTEXT',
-      prompt: prompt
+      context: prompt
     }, (response) => {
       if (chrome.runtime.lastError || !response?.success) {
         copyToClipboard(prompt);
