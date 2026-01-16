@@ -284,6 +284,14 @@ async function performCapture(tabId, url, platform, isUpdate) {
         lastUpdated: new Date().toISOString(), 
         title: aiAnalysis.title || existing.title,
         topic: aiAnalysis.topic || existing.topic,
+        // New enhanced fields
+        projectOrigin: aiAnalysis.projectOrigin || existing.projectOrigin,
+        coreInsights: aiAnalysis.coreInsights || existing.coreInsights,
+        whatHasBeenBuilt: aiAnalysis.whatHasBeenBuilt?.length ? aiAnalysis.whatHasBeenBuilt : existing.whatHasBeenBuilt,
+        strategicDirection: aiAnalysis.strategicDirection || existing.strategicDirection,
+        currentStatus: aiAnalysis.currentStatus || existing.currentStatus,
+        continuationPrompt: aiAnalysis.continuationPrompt || existing.continuationPrompt,
+        importantContext: aiAnalysis.importantContext || existing.importantContext,
         aiAnalyzed: true
       });
       await updateExistingContext(existing);
@@ -306,6 +314,14 @@ async function performCapture(tabId, url, platform, isUpdate) {
         decisions: aiAnalysis.decisions || [],
         openQuestions: aiAnalysis.openQuestions || [],
         messageCount: aiAnalysis.messageCount || text.split('---').length,
+        // New enhanced fields
+        projectOrigin: aiAnalysis.projectOrigin,
+        coreInsights: aiAnalysis.coreInsights,
+        whatHasBeenBuilt: aiAnalysis.whatHasBeenBuilt || [],
+        strategicDirection: aiAnalysis.strategicDirection,
+        currentStatus: aiAnalysis.currentStatus,
+        continuationPrompt: aiAnalysis.continuationPrompt,
+        importantContext: aiAnalysis.importantContext,
         capturedAt: new Date().toISOString(), 
         lastUpdated: new Date().toISOString(), 
         type: 'auto',
