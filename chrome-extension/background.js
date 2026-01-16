@@ -1,5 +1,6 @@
 // AI Context Bridge - Background Service Worker
 // Storage Strategy: Raw content → Cloud, Structured context → Local
+// AI Analysis: Send captured chats to Gemini for intelligent context extraction
 // Offline Mode: Queue syncs when offline, process when back online
 console.log('AI Context Bridge: Background started');
 
@@ -9,6 +10,7 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 
 let lastCaptureTime = {};
 const CAPTURE_COOLDOWN = 120000;
+let isAnalyzing = {}; // Track which URLs are being analyzed
 
 // ===== OFFLINE MODE & SYNC QUEUE =====
 let isOnline = true;
@@ -243,6 +245,13 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
 
 async function performCapture(tabId, url, platform, isUpdate) {
   const urlKey = url.split('?')[0];
+  
+  // Skip if already analyzing this URL
+  if (isAnalyzing[urlKey]) {
+    console.log('AI Context Bridge: Already analyzing', urlKey);
+    return;
+  }
+  
   if (!isUpdate && Date.now() - (lastCaptureTime[urlKey] || 0) < CAPTURE_COOLDOWN) return;
   
   let conv;
@@ -253,49 +262,120 @@ async function performCapture(tabId, url, platform, isUpdate) {
   if (text.split('\n').filter(l => l.trim().length > 10).length < 2) return;
   
   const currentTab = await chrome.tabs.get(tabId);
-  const detailed = generateDetailedContext(conv.text, platform, currentTab?.title || '');
   const existing = await findExistingContext(url);
   
-  if (existing && isUpdate) {
-    // Update local context (without rawContent)
-    Object.assign(existing, { 
-      summary: detailed.summary, 
-      keyPoints: detailed.keyPoints, 
-      techStack: detailed.techStack, 
-      decisions: detailed.decisions, 
-      openQuestions: detailed.openQuestions, 
-      messageCount: detailed.messageCount, 
-      lastUpdated: new Date().toISOString(), 
-      title: detailed.topic || cleanTitle(currentTab?.title, platform) || existing.title 
-    });
-    await updateExistingContext(existing);
-    // Update raw content in cloud
-    if (existing.cloudId) {
-      updateRawInCloud(existing.cloudId, conv.text);
+  // Mark as analyzing
+  isAnalyzing[urlKey] = true;
+  
+  try {
+    // Use AI to analyze the context
+    const aiAnalysis = await analyzeWithAI(text, platform, currentTab?.title || '');
+    
+    if (existing) {
+      // UPDATE existing context - merge the new analysis
+      console.log('AI Context Bridge: Updating existing context for', urlKey);
+      Object.assign(existing, { 
+        summary: aiAnalysis.summary || existing.summary, 
+        keyPoints: aiAnalysis.keyPoints?.length ? aiAnalysis.keyPoints : existing.keyPoints, 
+        techStack: aiAnalysis.techStack?.length ? aiAnalysis.techStack : existing.techStack, 
+        decisions: aiAnalysis.decisions?.length ? aiAnalysis.decisions : existing.decisions, 
+        openQuestions: aiAnalysis.openQuestions?.length ? aiAnalysis.openQuestions : existing.openQuestions, 
+        messageCount: aiAnalysis.messageCount || existing.messageCount, 
+        lastUpdated: new Date().toISOString(), 
+        title: aiAnalysis.title || existing.title,
+        topic: aiAnalysis.topic || existing.topic,
+        aiAnalyzed: true
+      });
+      await updateExistingContext(existing);
+      // Update raw content in cloud
+      if (existing.cloudId) {
+        updateRawInCloud(existing.cloudId, conv.text, existing);
+      }
+    } else {
+      // CREATE new context
+      console.log('AI Context Bridge: Creating new context for', urlKey);
+      const ctx = { 
+        id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5), 
+        platform, 
+        url: currentTab?.url || url, 
+        title: aiAnalysis.title || cleanTitle(currentTab?.title, platform) || 'Untitled Chat', 
+        topic: aiAnalysis.topic,
+        summary: aiAnalysis.summary,
+        keyPoints: aiAnalysis.keyPoints || [],
+        techStack: aiAnalysis.techStack || [],
+        decisions: aiAnalysis.decisions || [],
+        openQuestions: aiAnalysis.openQuestions || [],
+        messageCount: aiAnalysis.messageCount || text.split('---').length,
+        capturedAt: new Date().toISOString(), 
+        lastUpdated: new Date().toISOString(), 
+        type: 'auto',
+        aiAnalyzed: true
+      };
+      // Save context locally (without rawContent)
+      await saveLocalContext(ctx);
+      // Save raw content to cloud
+      saveRawToCloud(ctx, conv.text);
     }
-  } else if (!existing) {
-    const ctx = { 
-      id: 'ctx_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5), 
-      platform, 
-      url: currentTab?.url || url, 
-      title: detailed.topic || cleanTitle(currentTab?.title, platform) || 'Untitled Chat', 
-      ...detailed, 
-      capturedAt: new Date().toISOString(), 
-      lastUpdated: new Date().toISOString(), 
-      type: 'auto' 
-    };
-    // Save context locally (without rawContent)
-    await saveLocalContext(ctx);
-    // Save raw content to cloud
-    saveRawToCloud(ctx, conv.text);
+  } finally {
+    isAnalyzing[urlKey] = false;
   }
+  
   lastCaptureTime[urlKey] = Date.now();
   updateBadge();
 }
 
+// AI-powered context analysis using Gemini
+async function analyzeWithAI(rawContent, platform, pageTitle) {
+  try {
+    console.log('AI Context Bridge: Analyzing with AI...');
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-context`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON_KEY,
+        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+      },
+      body: JSON.stringify({ rawContent, platform, pageTitle })
+    });
+    
+    if (response.ok) {
+      const result = await response.json();
+      if (result.success && result.analysis) {
+        console.log('AI Context Bridge: AI analysis complete', result.analysis.title);
+        return {
+          ...result.analysis,
+          messageCount: rawContent.split('---').length
+        };
+      }
+    } else {
+      console.warn('AI Context Bridge: AI analysis failed, status:', response.status);
+    }
+  } catch (e) {
+    console.error('AI Context Bridge: AI analysis error:', e);
+  }
+  
+  // Fallback to local analysis if AI fails
+  console.log('AI Context Bridge: Falling back to local analysis');
+  return generateDetailedContext(rawContent, platform, pageTitle);
+}
+
+// Find existing context by URL (normalize URL for comparison)
 async function findExistingContext(url) {
   const r = await chrome.storage.local.get('capturedContexts');
-  return (r.capturedContexts || []).find(c => c.url.split('?')[0] === url.split('?')[0]);
+  const normalizedUrl = normalizeUrl(url);
+  return (r.capturedContexts || []).find(c => normalizeUrl(c.url) === normalizedUrl);
+}
+
+// Normalize URL for comparison (remove query params, trailing slashes, etc.)
+function normalizeUrl(url) {
+  try {
+    const u = new URL(url);
+    // Keep the path but normalize it
+    let path = u.pathname.replace(/\/+$/, ''); // Remove trailing slashes
+    return `${u.hostname}${path}`;
+  } catch {
+    return url.split('?')[0].replace(/\/+$/, '');
+  }
 }
 
 async function updateExistingContext(ctx) {
@@ -378,8 +458,20 @@ async function saveRawToCloud(ctx, rawContent) {
 }
 
 // Update raw content in cloud (with offline queue support)
-async function updateRawInCloud(cloudId, rawContent) {
-  const data = { raw_content: rawContent, updated_at: new Date().toISOString() };
+async function updateRawInCloud(cloudId, rawContent, contextData = {}) {
+  const data = { 
+    raw_content: rawContent, 
+    updated_at: new Date().toISOString(),
+    // Also update the analyzed data
+    ...(contextData.summary && { summary: contextData.summary }),
+    ...(contextData.title && { title: contextData.title }),
+    ...(contextData.topic && { topic: contextData.topic }),
+    ...(contextData.keyPoints?.length && { key_points: contextData.keyPoints }),
+    ...(contextData.techStack?.length && { tech_stack: contextData.techStack }),
+    ...(contextData.decisions?.length && { decisions: contextData.decisions }),
+    ...(contextData.openQuestions?.length && { open_questions: contextData.openQuestions }),
+    ...(contextData.messageCount && { message_count: contextData.messageCount })
+  };
   
   if (!isOnline) {
     await addToSyncQueue({ type: 'update', cloudId, data });
@@ -399,6 +491,7 @@ async function updateRawInCloud(cloudId, rawContent) {
     });
     
     if (!response.ok) throw new Error('Update failed');
+    console.log('AI Context Bridge: Updated cloud context', cloudId);
   } catch (e) {
     console.error('Failed to update raw content in cloud, queuing:', e);
     await addToSyncQueue({ type: 'update', cloudId, data });
