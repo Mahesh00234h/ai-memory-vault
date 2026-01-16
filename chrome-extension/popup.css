@@ -772,6 +772,46 @@ main {
   color: var(--accent-success);
 }
 
+.meta-tag.decisions {
+  background: rgba(34, 197, 94, 0.15);
+  color: var(--accent-success);
+}
+
+.meta-tag.built {
+  background: rgba(147, 51, 234, 0.15);
+  color: #a855f7;
+}
+
+/* Rich context card indicator */
+.captured-card.rich {
+  border-left: 3px solid var(--accent-primary);
+}
+
+.captured-card.rich .captured-title::after {
+  content: ' ✨';
+  font-size: 12px;
+}
+
+.captured-topic {
+  font-size: 11px;
+  color: var(--accent-primary);
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+}
+
+.captured-status {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--spacing-sm);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .captured-actions {
   display: flex;
   gap: var(--spacing-sm);

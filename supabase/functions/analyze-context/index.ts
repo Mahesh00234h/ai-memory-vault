@@ -26,38 +26,76 @@ serve(async (req) => {
     }
 
     // Truncate content if too long (to stay within token limits)
-    const truncatedContent = rawContent.length > 15000 
-      ? rawContent.substring(0, 15000) + "\n\n[Content truncated for analysis...]" 
+    const truncatedContent = rawContent.length > 30000 
+      ? rawContent.substring(0, 30000) + "\n\n[Content truncated for analysis...]" 
       : rawContent;
 
-    const systemPrompt = `You are an expert at analyzing AI chat conversations and extracting structured context. 
-Analyze the conversation and extract:
-1. A clear, descriptive title (max 60 chars) - NOT generic like "Untitled" or platform names
-2. The main topic being discussed
-3. A concise summary (2-3 sentences max)
-4. Key points or important information (up to 5 items)
-5. Any technology stack mentioned (programming languages, frameworks, tools)
-6. Decisions made during the conversation (up to 5)
-7. Open questions or unresolved items (up to 5)
+    const systemPrompt = `You are an expert context extraction AI. Your job is to transform AI chat conversations into comprehensive, structured context documents that allow someone to seamlessly continue the conversation with full understanding.
 
-Be specific and actionable. Focus on extracting the most useful context for resuming this conversation later.`;
+You must produce RICH, DETAILED context - not surface-level summaries. Think of yourself as creating a "project memory" that captures the essence of the entire discussion.
+
+Your analysis should be:
+- SPECIFIC: Use exact terminology, names, and concepts from the conversation
+- ACTIONABLE: Focus on what was decided, what's being built, and what's next
+- INSIGHTFUL: Capture not just what was said, but the underlying intent and reasoning
+- COMPREHENSIVE: Cover technical, strategic, and contextual dimensions
+
+Never produce generic or vague summaries. Every field should contain substantive, useful information.`;
 
     const userPrompt = `Platform: ${platform || 'Unknown'}
 Page Title: ${pageTitle || 'Unknown'}
 
-Conversation:
+CONVERSATION TO ANALYZE:
 ${truncatedContent}
 
-Analyze this conversation and return a JSON object with these exact fields:
+---
+
+Analyze this conversation deeply and return a JSON object with these fields. Be thorough and specific - imagine someone needs to continue this exact conversation with a different AI:
+
 {
-  "title": "A clear descriptive title (max 60 chars)",
-  "topic": "Main topic being discussed",
-  "summary": "2-3 sentence summary of the conversation",
-  "keyPoints": ["Key point 1", "Key point 2", ...],
-  "techStack": ["Tech1", "Tech2", ...],
-  "decisions": ["Decision 1", "Decision 2", ...],
-  "openQuestions": ["Question 1", "Question 2", ...]
-}`;
+  "title": "A clear, descriptive title that captures the essence (max 60 chars)",
+  
+  "topic": "The main subject/domain being discussed",
+  
+  "projectOrigin": "What is the origin/purpose of this project or discussion? What problem is being solved? Who is it for? (2-3 sentences)",
+  
+  "coreInsights": "What are the key conceptual breakthroughs or reframings in this conversation? What makes this approach unique or important? (2-4 sentences)",
+  
+  "summary": "A comprehensive summary covering the main discussion arc, key conclusions, and current state. Should be detailed enough to understand the full context. (4-6 sentences)",
+  
+  "whatHasBeenBuilt": [
+    "Specific thing that was created, defined, or established",
+    "Another concrete output or decision from the conversation"
+  ],
+  
+  "keyPoints": [
+    "Important point or insight 1",
+    "Important point or insight 2",
+    "Up to 8 key points that someone continuing this conversation MUST know"
+  ],
+  
+  "techStack": ["Technology", "Framework", "Tool", "Methodology mentioned"],
+  
+  "decisions": [
+    "A specific decision that was made",
+    "Another decision or choice that was locked in"
+  ],
+  
+  "strategicDirection": "What is the overall strategy or approach being taken? What is the 'philosophy' or 'design principle' guiding the work? (2-3 sentences)",
+  
+  "currentStatus": "What has been completed? What is in progress? What is the next step? (2-3 sentences)",
+  
+  "openQuestions": [
+    "Unresolved question or decision that needs to be made",
+    "Another open item that was left hanging"
+  ],
+  
+  "continuationPrompt": "A brief instruction for how to continue this conversation. What should NOT be re-explained? What should be the focus going forward? (2-3 sentences)",
+  
+  "importantContext": "Any critical context, constraints, or nuances that might be lost if not explicitly stated. Include any 'rules' or 'principles' established in the conversation. (2-3 sentences)"
+}
+
+Be extremely thorough. If a field doesn't apply, use an empty string or empty array, but try to extract as much as possible.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -72,6 +110,7 @@ Analyze this conversation and return a JSON object with these exact fields:
           { role: "user", content: userPrompt },
         ],
         temperature: 0.3,
+        max_tokens: 4000,
         response_format: { type: "json_object" },
       }),
     });
@@ -119,11 +158,18 @@ Analyze this conversation and return a JSON object with these exact fields:
     const sanitized = {
       title: (analysis.title || "Untitled Chat").substring(0, 60),
       topic: analysis.topic || null,
+      projectOrigin: analysis.projectOrigin || null,
+      coreInsights: analysis.coreInsights || null,
       summary: analysis.summary || null,
-      keyPoints: Array.isArray(analysis.keyPoints) ? analysis.keyPoints.slice(0, 5) : [],
-      techStack: Array.isArray(analysis.techStack) ? analysis.techStack.slice(0, 10) : [],
-      decisions: Array.isArray(analysis.decisions) ? analysis.decisions.slice(0, 5) : [],
-      openQuestions: Array.isArray(analysis.openQuestions) ? analysis.openQuestions.slice(0, 5) : [],
+      whatHasBeenBuilt: Array.isArray(analysis.whatHasBeenBuilt) ? analysis.whatHasBeenBuilt.slice(0, 10) : [],
+      keyPoints: Array.isArray(analysis.keyPoints) ? analysis.keyPoints.slice(0, 8) : [],
+      techStack: Array.isArray(analysis.techStack) ? analysis.techStack.slice(0, 15) : [],
+      decisions: Array.isArray(analysis.decisions) ? analysis.decisions.slice(0, 8) : [],
+      strategicDirection: analysis.strategicDirection || null,
+      currentStatus: analysis.currentStatus || null,
+      openQuestions: Array.isArray(analysis.openQuestions) ? analysis.openQuestions.slice(0, 8) : [],
+      continuationPrompt: analysis.continuationPrompt || null,
+      importantContext: analysis.importantContext || null,
     };
 
     return new Response(

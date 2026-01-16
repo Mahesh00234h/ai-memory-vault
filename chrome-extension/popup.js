@@ -877,28 +877,35 @@ function renderCapturedList() {
   const sortedContexts = [...capturedContexts].sort((a, b) => b.timestamp - a.timestamp);
   
   elements.capturedList.innerHTML = sortedContexts.map(ctx => {
-    const time = getRelativeTime(ctx.timestamp);
-    const platformClass = ctx.platform.toLowerCase().replace(/\s+/g, '-');
+    const time = getRelativeTime(ctx.timestamp || new Date(ctx.capturedAt).getTime());
+    const platformClass = (ctx.platform || 'unknown').toLowerCase().replace(/\s+/g, '-');
     const techPreview = ctx.techStack?.length > 0 ? ctx.techStack.slice(0, 3).join(', ') : '';
     const keyPointsCount = ctx.keyPoints?.length || 0;
-    const msgCount = ctx.messageCount ? `${ctx.messageCount.user + ctx.messageCount.ai} msgs` : '';
+    const decisionsCount = ctx.decisions?.length || 0;
+    const builtCount = ctx.whatHasBeenBuilt?.length || 0;
     const syncIcon = ctx.cloudId ? '☁️' : '💾';
+    const aiIcon = ctx.aiAnalyzed ? '✨' : '';
+    
+    // Create a richer preview showing context depth
+    const hasRichContext = ctx.projectOrigin || ctx.coreInsights || ctx.strategicDirection;
+    const contextDepth = hasRichContext ? 'rich' : 'basic';
     
     return `
-      <div class="captured-card" data-id="${ctx.id}">
+      <div class="captured-card ${contextDepth}" data-id="${ctx.id}">
         <div class="captured-header">
           <span class="platform-badge ${platformClass}">${ctx.platform}</span>
-          <span class="captured-time">${syncIcon} ${time}</span>
+          <span class="captured-time">${syncIcon} ${aiIcon} ${time}</span>
         </div>
         <div class="captured-title">${escapeHtml(ctx.title || 'Untitled Chat')}</div>
+        ${ctx.topic && ctx.topic !== ctx.title ? `<div class="captured-topic">🎯 ${escapeHtml(ctx.topic)}</div>` : ''}
         <div class="captured-summary">${escapeHtml(ctx.summary || 'No summary available')}</div>
-        ${techPreview || keyPointsCount || msgCount ? `
-          <div class="captured-meta">
-            ${techPreview ? `<span class="meta-tag tech">🛠️ ${techPreview}</span>` : ''}
-            ${keyPointsCount ? `<span class="meta-tag points">💡 ${keyPointsCount} points</span>` : ''}
-            ${msgCount ? `<span class="meta-tag msgs">💬 ${msgCount}</span>` : ''}
-          </div>
-        ` : ''}
+        ${ctx.currentStatus ? `<div class="captured-status">📊 ${escapeHtml(ctx.currentStatus.substring(0, 100))}...</div>` : ''}
+        <div class="captured-meta">
+          ${techPreview ? `<span class="meta-tag tech">🛠️ ${techPreview}</span>` : ''}
+          ${keyPointsCount ? `<span class="meta-tag points">💡 ${keyPointsCount}</span>` : ''}
+          ${decisionsCount ? `<span class="meta-tag decisions">✅ ${decisionsCount}</span>` : ''}
+          ${builtCount ? `<span class="meta-tag built">🏗️ ${builtCount}</span>` : ''}
+        </div>
         <div class="captured-actions">
           <button class="use-btn" title="Use this context">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1047,20 +1054,54 @@ function showContextDetail(id, isTeamContext = false) {
     elements.shareToTeamBtn?.classList.add('hidden');
   }
   
-  // Build detailed content view
+  // Build detailed content view - Enhanced with richer context
   let detailContent = '';
   
-  const summary = isTeamContext ? ctx.summary : ctx.summary;
+  // Extract fields (handle both local and team context formats)
+  const summary = ctx.summary;
+  const projectOrigin = ctx.projectOrigin || ctx.project_origin;
+  const coreInsights = ctx.coreInsights || ctx.core_insights;
+  const whatHasBeenBuilt = ctx.whatHasBeenBuilt || ctx.what_has_been_built || [];
   const keyPoints = isTeamContext ? ctx.key_points : ctx.keyPoints;
   const techStack = isTeamContext ? ctx.tech_stack : ctx.techStack;
-  const decisions = isTeamContext ? ctx.decisions : ctx.decisions;
+  const decisions = ctx.decisions;
+  const strategicDirection = ctx.strategicDirection || ctx.strategic_direction;
+  const currentStatus = ctx.currentStatus || ctx.current_status;
   const openQuestions = isTeamContext ? ctx.open_questions : ctx.openQuestions;
+  const continuationPrompt = ctx.continuationPrompt || ctx.continuation_prompt;
+  const importantContext = ctx.importantContext || ctx.important_context;
   const rawContent = isTeamContext ? ctx.raw_content : ctx.rawContent;
   
+  // Topic header
+  if (ctx.topic) {
+    detailContent += `🎯 TOPIC: ${ctx.topic}\n\n`;
+  }
+  
+  // Project Origin / Purpose
+  if (projectOrigin) {
+    detailContent += `📌 PROJECT ORIGIN\n${projectOrigin}\n\n`;
+  }
+  
+  // Core Insights / Key Reframings
+  if (coreInsights) {
+    detailContent += `💎 CORE INSIGHTS\n${coreInsights}\n\n`;
+  }
+  
+  // Summary
   if (summary) {
     detailContent += `📋 SUMMARY\n${summary}\n\n`;
   }
   
+  // What Has Been Built / Established
+  if (whatHasBeenBuilt && whatHasBeenBuilt.length > 0) {
+    detailContent += `🏗️ WHAT HAS BEEN BUILT\n`;
+    whatHasBeenBuilt.forEach((item, i) => {
+      detailContent += `${i + 1}. ${item}\n`;
+    });
+    detailContent += '\n';
+  }
+  
+  // Key Points
   if (keyPoints && keyPoints.length > 0) {
     detailContent += `💡 KEY POINTS\n`;
     keyPoints.forEach((point, i) => {
@@ -1069,10 +1110,17 @@ function showContextDetail(id, isTeamContext = false) {
     detailContent += '\n';
   }
   
+  // Tech Stack
   if (techStack && techStack.length > 0) {
     detailContent += `🛠️ TECH STACK\n${techStack.join(', ')}\n\n`;
   }
   
+  // Strategic Direction
+  if (strategicDirection) {
+    detailContent += `🧭 STRATEGIC DIRECTION\n${strategicDirection}\n\n`;
+  }
+  
+  // Decisions Made
   if (decisions && decisions.length > 0) {
     detailContent += `✅ DECISIONS MADE\n`;
     decisions.forEach(d => {
@@ -1081,6 +1129,12 @@ function showContextDetail(id, isTeamContext = false) {
     detailContent += '\n';
   }
   
+  // Current Status
+  if (currentStatus) {
+    detailContent += `📊 CURRENT STATUS\n${currentStatus}\n\n`;
+  }
+  
+  // Open Questions
   if (openQuestions && openQuestions.length > 0) {
     detailContent += `❓ OPEN QUESTIONS\n`;
     openQuestions.forEach(q => {
@@ -1089,8 +1143,19 @@ function showContextDetail(id, isTeamContext = false) {
     detailContent += '\n';
   }
   
-  detailContent += `─────────────────────────\n📜 RAW CONVERSATION\n─────────────────────────\n`;
-  detailContent += rawContent || ctx.content || 'No raw content available';
+  // Important Context / Rules
+  if (importantContext) {
+    detailContent += `⚠️ IMPORTANT CONTEXT\n${importantContext}\n\n`;
+  }
+  
+  // Continuation Prompt (How to continue)
+  if (continuationPrompt) {
+    detailContent += `🔄 HOW TO CONTINUE\n${continuationPrompt}\n\n`;
+  }
+  
+  // Raw Conversation
+  detailContent += `─────────────────────────────────────\n📜 RAW CONVERSATION\n─────────────────────────────────────\n`;
+  detailContent += rawContent || ctx.content || 'No raw content available (stored in cloud)';
   
   elements.contextContent.value = detailContent;
   
@@ -1370,13 +1435,34 @@ function handleDeleteContext() {
 function formatCapturedContext(ctx) {
   let prompt = `Continue from this previous conversation context:\n\n`;
   prompt += `Platform: ${ctx.platform}\n`;
-  prompt += `Topic: ${ctx.title}\n`;
-  prompt += `Captured: ${new Date(ctx.timestamp).toLocaleString()}\n\n`;
+  prompt += `Topic: ${ctx.topic || ctx.title}\n`;
+  prompt += `Captured: ${new Date(ctx.timestamp || ctx.capturedAt).toLocaleString()}\n\n`;
   
+  // Project Origin
+  if (ctx.projectOrigin) {
+    prompt += `📌 PROJECT ORIGIN\n${ctx.projectOrigin}\n\n`;
+  }
+  
+  // Core Insights
+  if (ctx.coreInsights) {
+    prompt += `💎 CORE INSIGHTS\n${ctx.coreInsights}\n\n`;
+  }
+  
+  // Summary
   if (ctx.summary) {
     prompt += `Summary: ${ctx.summary}\n\n`;
   }
   
+  // What Has Been Built
+  if (ctx.whatHasBeenBuilt && ctx.whatHasBeenBuilt.length > 0) {
+    prompt += `What Has Been Built/Established:\n`;
+    ctx.whatHasBeenBuilt.forEach((item, i) => {
+      prompt += `${i + 1}. ${item}\n`;
+    });
+    prompt += '\n';
+  }
+  
+  // Key Points
   if (ctx.keyPoints && ctx.keyPoints.length > 0) {
     prompt += `Key Points from Previous Discussion:\n`;
     ctx.keyPoints.forEach((point, i) => {
@@ -1385,10 +1471,17 @@ function formatCapturedContext(ctx) {
     prompt += '\n';
   }
   
+  // Tech Stack
   if (ctx.techStack && ctx.techStack.length > 0) {
     prompt += `Tech Stack: ${ctx.techStack.join(', ')}\n\n`;
   }
   
+  // Strategic Direction
+  if (ctx.strategicDirection) {
+    prompt += `Strategic Direction: ${ctx.strategicDirection}\n\n`;
+  }
+  
+  // Decisions Made
   if (ctx.decisions && ctx.decisions.length > 0) {
     prompt += `Decisions Made:\n`;
     ctx.decisions.forEach(d => {
@@ -1397,6 +1490,12 @@ function formatCapturedContext(ctx) {
     prompt += '\n';
   }
   
+  // Current Status
+  if (ctx.currentStatus) {
+    prompt += `Current Status: ${ctx.currentStatus}\n\n`;
+  }
+  
+  // Open Questions
   if (ctx.openQuestions && ctx.openQuestions.length > 0) {
     prompt += `Open Questions to Address:\n`;
     ctx.openQuestions.forEach(q => {
@@ -1405,7 +1504,17 @@ function formatCapturedContext(ctx) {
     prompt += '\n';
   }
   
-  prompt += `Do not re-explain basics or ask onboarding questions. Continue from where we left off.`;
+  // Important Context
+  if (ctx.importantContext) {
+    prompt += `⚠️ Important Context/Rules: ${ctx.importantContext}\n\n`;
+  }
+  
+  // Continuation prompt
+  if (ctx.continuationPrompt) {
+    prompt += `How to Continue: ${ctx.continuationPrompt}\n\n`;
+  } else {
+    prompt += `Do not re-explain basics or ask onboarding questions. Continue from where we left off.`;
+  }
   
   return prompt;
 }
