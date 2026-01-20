@@ -107,6 +107,108 @@ export type Database = {
         }
         Relationships: []
       }
+      memories: {
+        Row: {
+          content_hash: string | null
+          created_at: string
+          decisions: Json | null
+          id: string
+          key_points: Json | null
+          memory_version: number
+          message_count: number | null
+          open_questions: Json | null
+          project_id: string | null
+          raw_text: string | null
+          source_captured_at: string | null
+          source_page_title: string | null
+          source_platform: string | null
+          source_thread_key: string | null
+          source_url: string | null
+          summary: string | null
+          team_id: string | null
+          title: string
+          topic: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          content_hash?: string | null
+          created_at?: string
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          memory_version?: number
+          message_count?: number | null
+          open_questions?: Json | null
+          project_id?: string | null
+          raw_text?: string | null
+          source_captured_at?: string | null
+          source_page_title?: string | null
+          source_platform?: string | null
+          source_thread_key?: string | null
+          source_url?: string | null
+          summary?: string | null
+          team_id?: string | null
+          title: string
+          topic?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          content_hash?: string | null
+          created_at?: string
+          decisions?: Json | null
+          id?: string
+          key_points?: Json | null
+          memory_version?: number
+          message_count?: number | null
+          open_questions?: Json | null
+          project_id?: string | null
+          raw_text?: string | null
+          source_captured_at?: string | null
+          source_page_title?: string | null
+          source_platform?: string | null
+          source_thread_key?: string | null
+          source_url?: string | null
+          summary?: string | null
+          team_id?: string | null
+          title?: string
+          topic?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      projects: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          team_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          team_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          team_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       team_members: {
         Row: {
           id: string
