@@ -21,6 +21,22 @@ type IngestRequest = {
   };
 };
 
+// Input validation constants
+const MAX_RAW_TEXT_LENGTH = 100000;
+const MAX_PLATFORM_LENGTH = 50;
+const MAX_URL_LENGTH = 2048;
+const MAX_THREAD_KEY_LENGTH = 255;
+const MAX_PAGE_TITLE_LENGTH = 200;
+const MAX_CONTENT_HASH_LENGTH = 64;
+const MAX_MESSAGE_COUNT = 10000;
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: unknown): boolean {
+  return typeof value === "string" && UUID_REGEX.test(value);
+}
+
 function clampArray(value: unknown, max: number): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -151,12 +167,66 @@ serve(async (req) => {
 
     const body = (await req.json()) as IngestRequest;
     const rawText = typeof body.rawText === "string" ? body.rawText : "";
+    
+    // Input length validation
     if (!rawText || rawText.trim().length < 50) {
-      return new Response(JSON.stringify({ error: "rawText too short" }), {
+      return new Response(JSON.stringify({ error: "rawText too short (minimum 50 characters)" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    if (rawText.length > MAX_RAW_TEXT_LENGTH) {
+      return new Response(JSON.stringify({ error: `rawText too long (maximum ${MAX_RAW_TEXT_LENGTH} characters)` }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate projectId format if provided
+    if (body.projectId !== undefined && body.projectId !== null) {
+      if (!isValidUuid(body.projectId)) {
+        return new Response(JSON.stringify({ error: "Invalid projectId format" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Validate teamId format if provided
+    if (body.teamId !== undefined && body.teamId !== null) {
+      if (!isValidUuid(body.teamId)) {
+        return new Response(JSON.stringify({ error: "Invalid teamId format" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    // Validate and sanitize source fields
+    const sanitizedSource = {
+      platform: typeof body.source?.platform === "string" 
+        ? body.source.platform.slice(0, MAX_PLATFORM_LENGTH) 
+        : null,
+      url: typeof body.source?.url === "string" 
+        ? body.source.url.slice(0, MAX_URL_LENGTH) 
+        : null,
+      threadKey: typeof body.source?.threadKey === "string" 
+        ? body.source.threadKey.slice(0, MAX_THREAD_KEY_LENGTH) 
+        : null,
+      pageTitle: typeof body.source?.pageTitle === "string" 
+        ? body.source.pageTitle.slice(0, MAX_PAGE_TITLE_LENGTH) 
+        : null,
+      capturedAt: typeof body.source?.capturedAt === "string" 
+        ? body.source.capturedAt 
+        : null,
+      messageCount: typeof body.source?.messageCount === "number" 
+        ? Math.min(Math.max(0, Math.floor(body.source.messageCount)), MAX_MESSAGE_COUNT) 
+        : 0,
+      contentHash: typeof body.source?.contentHash === "string" 
+        ? body.source.contentHash.slice(0, MAX_CONTENT_HASH_LENGTH) 
+        : null,
+    };
 
     const authHeader = req.headers.get("Authorization") ?? "";
     if (!authHeader) {
@@ -184,6 +254,23 @@ serve(async (req) => {
       });
     }
 
+    // Validate project ownership if projectId is provided
+    if (body.projectId) {
+      const { data: project, error: projectErr } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("id", body.projectId)
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+      
+      if (projectErr || !project) {
+        return new Response(JSON.stringify({ error: "Project not found or access denied" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     const cleaned = cleanRawText(rawText);
     if (cleaned.length < 50) {
       return new Response(JSON.stringify({ error: "Content too short after cleaning" }), {
@@ -194,9 +281,9 @@ serve(async (req) => {
 
     const analysis = await analyzeToMemoryJson({
       rawText: cleaned,
-      platform: body.source?.platform ?? null,
-      url: body.source?.url ?? null,
-      pageTitle: body.source?.pageTitle ?? null,
+      platform: sanitizedSource.platform,
+      url: sanitizedSource.url,
+      pageTitle: sanitizedSource.pageTitle,
     });
 
     const insertPayload = {
@@ -204,11 +291,11 @@ serve(async (req) => {
       team_id: body.teamId ?? null,
       project_id: body.projectId ?? null,
 
-      source_platform: body.source?.platform ?? null,
-      source_url: body.source?.url ?? null,
-      source_thread_key: body.source?.threadKey ?? null,
-      source_page_title: body.source?.pageTitle ?? null,
-      source_captured_at: body.source?.capturedAt ?? null,
+      source_platform: sanitizedSource.platform,
+      source_url: sanitizedSource.url,
+      source_thread_key: sanitizedSource.threadKey,
+      source_page_title: sanitizedSource.pageTitle,
+      source_captured_at: sanitizedSource.capturedAt,
 
       raw_text: cleaned,
 
@@ -219,8 +306,8 @@ serve(async (req) => {
       decisions: analysis.decisions,
       open_questions: analysis.open_questions,
 
-      content_hash: body.source?.contentHash ?? null,
-      message_count: body.source?.messageCount ?? 0,
+      content_hash: sanitizedSource.contentHash,
+      message_count: sanitizedSource.messageCount,
     };
 
     const { data, error } = await supabase
