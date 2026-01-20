@@ -2,3 +2,6 @@ project_id = "meqqbjhfmrpsiqsexcif"
 
 [functions.analyze-context]
 verify_jwt = false
+
+[functions.ingest-memory]
+verify_jwt = true
