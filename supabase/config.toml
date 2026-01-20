@@ -4,4 +4,4 @@ project_id = "meqqbjhfmrpsiqsexcif"
 verify_jwt = false
 
 [functions.ingest-memory]
-verify_jwt = true
+verify_jwt = false

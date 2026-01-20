@@ -77,6 +77,7 @@ const elements = {
   capturedList: document.getElementById('capturedList'),
   capturedEmptyState: document.getElementById('capturedEmptyState'),
   autoCaptureToggle: document.getElementById('autoCaptureToggle'),
+  v2IngestToggle: document.getElementById('v2IngestToggle'),
   refreshCaptureBtn: document.getElementById('refreshCaptureBtn'),
   
   // Buttons
@@ -270,6 +271,9 @@ async function loadData() {
     
     if (elements.autoCaptureToggle) {
       elements.autoCaptureToggle.checked = result.settings?.autoCapture !== false;
+    }
+    if (elements.v2IngestToggle) {
+      elements.v2IngestToggle.checked = result.settings?.useV2Ingest === true;
     }
   } catch (error) {
     console.error('Error loading data:', error);
@@ -1241,6 +1245,12 @@ function setupEventListeners() {
   elements.autoCaptureToggle?.addEventListener('change', (e) => {
     saveSettings({ autoCapture: e.target.checked });
     showToast(e.target.checked ? 'Auto-capture enabled' : 'Auto-capture disabled');
+  });
+
+  // V2 Memory toggle (feature flag)
+  elements.v2IngestToggle?.addEventListener('change', (e) => {
+    saveSettings({ useV2Ingest: e.target.checked });
+    showToast(e.target.checked ? 'V2 Memory ingest enabled (beta)' : 'V2 Memory ingest disabled');
   });
   
   // Refresh/Manual capture button
