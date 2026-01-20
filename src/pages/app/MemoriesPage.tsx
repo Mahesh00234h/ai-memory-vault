@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Calendar, FileText, Lightbulb, CheckCircle, HelpCircle, Copy, Check } from "lucide-react";
+import { Search, Calendar, FileText, Lightbulb, CheckCircle, HelpCircle, Copy, Check, RefreshCw, ArrowRightLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Memory {
@@ -31,11 +31,24 @@ interface RecallResponse {
   error?: string;
 }
 
+interface MigrationResponse {
+  success: boolean;
+  message: string;
+  total: number;
+  alreadyMigrated: number;
+  migrated: number;
+  failed?: number;
+  errors?: string[];
+  dryRun?: boolean;
+  toMigrate?: number;
+}
+
 export function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Debounce search
   const handleSearch = (value: string) => {
@@ -77,6 +90,56 @@ export function MemoriesPage() {
       return response.json();
     },
     refetchOnWindowFocus: false,
+  });
+
+  // Migration mutation
+  const migrationMutation = useMutation({
+    mutationFn: async (dryRun: boolean): Promise<MigrationResponse> => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        throw new Error("Not authenticated");
+      }
+
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/migrate-v1-memories`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ dryRun }),
+        }
+      );
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`Migration failed: ${text}`);
+      }
+
+      return response.json();
+    },
+    onSuccess: (result) => {
+      if (result.dryRun) {
+        toast({
+          title: "Migration Preview",
+          description: `Found ${result.toMigrate} V1 contexts to migrate (${result.alreadyMigrated} already migrated)`,
+        });
+      } else {
+        toast({
+          title: "Migration Complete",
+          description: `Migrated ${result.migrated} memories${result.failed ? `, ${result.failed} failed` : ""}`,
+        });
+        queryClient.invalidateQueries({ queryKey: ["memories"] });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Migration Failed",
+        description: (error as Error).message,
+        variant: "destructive",
+      });
+    },
   });
 
   const copyPromptBlock = async () => {
@@ -171,20 +234,36 @@ export function MemoriesPage() {
             Your captured context from AI conversations
           </p>
         </div>
-        {data?.count ? (
+        <div className="flex items-center gap-2">
+          {/* V1 Migration Button */}
           <Button
             variant="outline"
-            onClick={copyPromptBlock}
+            onClick={() => migrationMutation.mutate(false)}
+            disabled={migrationMutation.isPending}
             className="gap-2"
           >
-            {copiedId === "all" ? (
-              <Check className="h-4 w-4" />
+            {migrationMutation.isPending ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
             ) : (
-              <Copy className="h-4 w-4" />
+              <ArrowRightLeft className="h-4 w-4" />
             )}
-            Copy All as Prompt
+            Migrate V1
           </Button>
-        ) : null}
+          {data?.count ? (
+            <Button
+              variant="outline"
+              onClick={copyPromptBlock}
+              className="gap-2"
+            >
+              {copiedId === "all" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+              Copy All as Prompt
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       {/* Search */}
