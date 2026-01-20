@@ -1,9 +1,15 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// Input validation constants
+const MAX_RAW_CONTENT_LENGTH = 100000;
+const MAX_PLATFORM_LENGTH = 50;
+const MAX_PAGE_TITLE_LENGTH = 200;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -11,11 +17,50 @@ serve(async (req) => {
   }
 
   try {
-    const { rawContent, platform, pageTitle } = await req.json();
+    // Authentication check
+    const authHeader = req.headers.get("Authorization") ?? "";
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: "Missing Authorization header" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("Backend keys are not configured");
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: { headers: { Authorization: authHeader } },
+    });
+
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !userData?.user?.id) {
+      return new Response(
+        JSON.stringify({ error: "Invalid authentication" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    const body = await req.json();
+    
+    // Input validation
+    const rawContent = typeof body.rawContent === "string" ? body.rawContent : "";
+    const platform = typeof body.platform === "string" ? body.platform.slice(0, MAX_PLATFORM_LENGTH) : null;
+    const pageTitle = typeof body.pageTitle === "string" ? body.pageTitle.slice(0, MAX_PAGE_TITLE_LENGTH) : null;
 
     if (!rawContent || rawContent.length < 50) {
       return new Response(
         JSON.stringify({ error: "Content too short for analysis" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (rawContent.length > MAX_RAW_CONTENT_LENGTH) {
+      return new Response(
+        JSON.stringify({ error: `Content too long. Maximum ${MAX_RAW_CONTENT_LENGTH} characters allowed.` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

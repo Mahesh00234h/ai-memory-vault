@@ -13,6 +13,16 @@ type RecallRequest = {
   recencyDays?: number;
 };
 
+// Input validation constants
+const MAX_QUERY_LENGTH = 500;
+
+// UUID validation regex
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: unknown): boolean {
+  return typeof value === "string" && UUID_REGEX.test(value);
+}
+
 type MemoryBlock = {
   id: string;
   title: string;
@@ -112,10 +122,38 @@ serve(async (req) => {
     }
 
     const body = (await req.json()) as RecallRequest;
-    const query = typeof body.query === "string" ? body.query.trim() : "";
-    const projectId = body.projectId ?? null;
+    
+    // Input validation
+    const query = typeof body.query === "string" ? body.query.trim().slice(0, MAX_QUERY_LENGTH) : "";
     const limit = Math.min(Math.max(body.limit ?? 10, 1), 50);
     const recencyDays = Math.min(Math.max(body.recencyDays ?? 30, 1), 365);
+    
+    // Validate projectId format if provided
+    let projectId: string | null = null;
+    if (body.projectId !== undefined && body.projectId !== null) {
+      if (!isValidUuid(body.projectId)) {
+        return new Response(JSON.stringify({ error: "Invalid projectId format" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      
+      // Verify project ownership
+      const { data: project, error: projectErr } = await supabase
+        .from("projects")
+        .select("id")
+        .eq("id", body.projectId)
+        .eq("user_id", userData.user.id)
+        .maybeSingle();
+      
+      if (projectErr || !project) {
+        return new Response(JSON.stringify({ error: "Project not found or access denied" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      projectId = body.projectId;
+    }
 
     // Build the query
     let dbQuery = supabase
