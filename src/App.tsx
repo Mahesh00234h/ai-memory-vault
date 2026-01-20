@@ -9,6 +9,7 @@ import Signup from "./pages/Signup";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { AppLayout } from "./pages/app/AppLayout";
 import { ProjectsPage } from "./pages/app/ProjectsPage";
+import { MemoriesPage } from "./pages/app/MemoriesPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
             }
           >
             <Route path="projects" element={<ProjectsPage />} />
+            <Route path="memories" element={<MemoriesPage />} />
           </Route>
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

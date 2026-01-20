@@ -15,8 +15,11 @@ export function AppLayout() {
       <header className="border-b">
         <div className="mx-auto max-w-5xl px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link to="/app/projects" className="font-semibold tracking-tight">
+            <Link to="/app/memories" className="font-semibold tracking-tight">
               AI Memory Vault
+            </Link>
+            <Link to="/app/memories" className="text-sm text-muted-foreground hover:text-foreground">
+              Memories
             </Link>
             <Link to="/app/projects" className="text-sm text-muted-foreground hover:text-foreground">
               Projects
