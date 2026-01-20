@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.ingest-memory]
 verify_jwt = false
+
+[functions.recall-memory]
+verify_jwt = false
