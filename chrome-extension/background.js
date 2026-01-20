@@ -2,15 +2,23 @@
 // Storage Strategy: Raw content → Cloud, Structured context → Local
 // AI Analysis: Send captured chats to Gemini for intelligent context extraction
 // Offline Mode: Queue syncs when offline, process when back online
+// V2 Mode: optionally call ingest-memory edge function (feature flagged)
 console.log('AI Context Bridge: Background started');
 
 const AI_PLATFORMS = { 'chat.openai.com': 'ChatGPT', 'chatgpt.com': 'ChatGPT', 'claude.ai': 'Claude', 'gemini.google.com': 'Gemini', 'copilot.microsoft.com': 'Copilot', 'poe.com': 'Poe', 'perplexity.ai': 'Perplexity' };
 const SUPABASE_URL = 'https://meqqbjhfmrpsiqsexcif.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcXFiamhmbXJwc2lxc2V4Y2lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0MDkzNzUsImV4cCI6MjA4Mzk4NTM3NX0.pqoNxaO0CtEFpGSYOZ3JZk7S3B1EOEYuh9mymP1mDqI';
 
+// WEB APP origin for cookie/session sharing (set to published URL once deployed)
+const WEB_APP_ORIGINS = [
+  'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app'
+];
+const SUPABASE_STORAGE_KEY = 'sb-meqqbjhfmrpsiqsexcif-auth-token';
+
 let lastCaptureTime = {};
 const CAPTURE_COOLDOWN = 120000;
 let isAnalyzing = {}; // Track which URLs are being analyzed
+let cachedWebSession = null; // JWT access_token from web app
 
 // ===== OFFLINE MODE & SYNC QUEUE =====
 let isOnline = true;
@@ -179,10 +187,129 @@ async function processSyncQueue() {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get(['capturedContexts', 'settings'], r => {
     if (!r.capturedContexts) chrome.storage.local.set({ capturedContexts: [] });
-    if (!r.settings) chrome.storage.local.set({ settings: { autoCapture: true } });
+    // Defaults: autoCapture on, useV2Ingest off (behind feature flag)
+    if (!r.settings) chrome.storage.local.set({ settings: { autoCapture: true, useV2Ingest: false } });
+    else if (r.settings && r.settings.useV2Ingest === undefined) {
+      chrome.storage.local.set({ settings: { ...r.settings, useV2Ingest: false } });
+    }
   });
   chrome.contextMenus.create({ id: 'capture-selection', title: 'Capture to AI Context Bridge', contexts: ['selection'] });
 });
+
+// ===== V2 SESSION HELPER =====
+// Try to read the Supabase auth session from the web app cookie/localStorage via an injected script
+async function fetchWebSession() {
+  for (const origin of WEB_APP_ORIGINS) {
+    try {
+      // Attempt to access localStorage of the web app origin via cookies API (requires host_permissions)
+      const cookies = await chrome.cookies.getAll({ domain: new URL(origin).hostname });
+      const sbCookie = cookies.find(c => c.name === SUPABASE_STORAGE_KEY);
+      if (sbCookie?.value) {
+        try {
+          const decoded = decodeURIComponent(sbCookie.value);
+          const parsed = JSON.parse(decoded);
+          if (parsed.access_token) {
+            cachedWebSession = parsed.access_token;
+            return parsed.access_token;
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.log('AI Context Bridge: cookie read failed', e);
+    }
+  }
+  // fallback: try to read from local storage via runtime messaging to the web app tab
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (WEB_APP_ORIGINS.some(o => tab.url?.startsWith(o))) {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (key) => localStorage.getItem(key),
+          args: [SUPABASE_STORAGE_KEY]
+        });
+        if (result?.[0]?.result) {
+          try {
+            const parsed = JSON.parse(result[0].result);
+            if (parsed.access_token) {
+              cachedWebSession = parsed.access_token;
+              return parsed.access_token;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
+// Queue for V2 ingest calls
+let v2IngestQueue = [];
+
+async function persistV2Queue() {
+  await chrome.storage.local.set({ v2IngestQueue });
+}
+
+(async () => {
+  const stored = await chrome.storage.local.get('v2IngestQueue');
+  v2IngestQueue = stored.v2IngestQueue || [];
+})();
+
+async function addToV2Queue(item) {
+  v2IngestQueue = v2IngestQueue.filter(q => q.threadKey !== item.threadKey);
+  v2IngestQueue.push({ ...item, queuedAt: Date.now() });
+  await persistV2Queue();
+  processV2Queue();
+}
+
+async function processV2Queue() {
+  const settings = (await chrome.storage.local.get('settings')).settings || {};
+  if (!settings.useV2Ingest) return;
+  const token = cachedWebSession || (await fetchWebSession());
+  if (!token) {
+    console.log('AI Context Bridge V2: no session, queue waiting');
+    return;
+  }
+  const queueCopy = [...v2IngestQueue];
+  const failed = [];
+  for (const item of queueCopy) {
+    try {
+      const resp = await fetch(`${SUPABASE_URL}/functions/v1/ingest-memory`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          rawText: item.rawText,
+          projectId: item.projectId || null,
+          teamId: item.teamId || null,
+          source: {
+            platform: item.platform,
+            url: item.url,
+            threadKey: item.threadKey,
+            pageTitle: item.pageTitle,
+            capturedAt: item.capturedAt,
+            messageCount: item.messageCount,
+            contentHash: item.contentHash
+          }
+        })
+      });
+      if (!resp.ok) {
+        const txt = await resp.text();
+        console.error('AI Context Bridge V2: ingest failed', resp.status, txt);
+        failed.push(item);
+      } else {
+        console.log('AI Context Bridge V2: ingested memory for', item.url);
+      }
+    } catch (e) {
+      console.error('AI Context Bridge V2: ingest error', e);
+      failed.push(item);
+    }
+  }
+  v2IngestQueue = failed;
+  await persistV2Queue();
+}
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'capture-selection' && info.selectionText) {
@@ -329,8 +456,19 @@ async function performCapture(tabId, url, platform, isUpdate) {
       };
       // Save context locally (without rawContent)
       await saveLocalContext(ctx);
-      // Save raw content to cloud
+      // Save raw content to cloud (V1)
       saveRawToCloud(ctx, conv.text);
+
+      // V2 ingest (queued if enabled + session available)
+      await maybeQueueV2Ingest({
+        rawText: conv.text,
+        url: ctx.url,
+        platform: ctx.platform,
+        pageTitle: currentTab?.title || '',
+        threadKey: normalizeUrl(ctx.url),
+        capturedAt: ctx.capturedAt,
+        messageCount: ctx.messageCount
+      });
     }
   } finally {
     isAnalyzing[urlKey] = false;
@@ -373,6 +511,13 @@ async function analyzeWithAI(rawContent, platform, pageTitle) {
   // Fallback to local analysis if AI fails
   console.log('AI Context Bridge: Falling back to local analysis');
   return generateDetailedContext(rawContent, platform, pageTitle);
+}
+
+// ===== V2 INGEST HELPER =====
+async function maybeQueueV2Ingest(item) {
+  const settings = (await chrome.storage.local.get('settings')).settings || {};
+  if (!settings.useV2Ingest) return;
+  await addToV2Queue(item);
 }
 
 // Find existing context by URL (normalize URL for comparison)

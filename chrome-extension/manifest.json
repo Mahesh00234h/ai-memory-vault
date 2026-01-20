@@ -8,7 +8,9 @@
     "activeTab",
     "tabs",
     "clipboardWrite",
-    "contextMenus"
+    "contextMenus",
+    "cookies",
+    "scripting"
   ],
   "host_permissions": [
     "https://chat.openai.com/*",
@@ -18,7 +20,9 @@
     "https://copilot.microsoft.com/*",
     "https://poe.com/*",
     "https://perplexity.ai/*",
-    "https://www.perplexity.ai/*"
+    "https://www.perplexity.ai/*",
+    "https://meqqbjhfmrpsiqsexcif.supabase.co/*",
+    "https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app/*"
   ],
   "action": {
     "default_popup": "popup.html",
