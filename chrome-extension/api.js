@@ -379,6 +379,37 @@ function unsubscribeFromRealtime() {
   realtimeCallbacks = { onInsert: null, onUpdate: null, onDelete: null };
 }
 
+// ===== V2 MEMORY RECALL =====
+
+/**
+ * Call the recall-memory edge function to get prompt-ready context
+ * @param {string} accessToken - JWT from web app session
+ * @param {object} options - { query?, projectId?, limit?, recencyDays? }
+ * @returns {Promise<{ success: boolean, promptBlock: string, memories: array, count: number }>}
+ */
+async function recallMemory(accessToken, options = {}) {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/recall-memory`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({
+      query: options.query || '',
+      projectId: options.projectId || null,
+      limit: options.limit || 10,
+      recencyDays: options.recencyDays || 30
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`recall-memory failed (${response.status}): ${text}`);
+  }
+
+  return await response.json();
+}
+
 // Export for use in popup.js
 if (typeof window !== 'undefined') {
   window.API = {
@@ -400,6 +431,7 @@ if (typeof window !== 'undefined') {
     syncContextsToCloud,
     fetchCloudContexts,
     subscribeToTeamContexts,
-    unsubscribeFromRealtime
+    unsubscribeFromRealtime,
+    recallMemory
   };
 }
