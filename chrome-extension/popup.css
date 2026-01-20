@@ -500,6 +500,16 @@ main {
   color: var(--text-primary);
 }
 
+.action-btn.recall {
+  background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  border-color: #8b5cf6;
+  color: white;
+}
+
+.action-btn.recall:hover {
+  background: linear-gradient(135deg, #a78bfa, #818cf8);
+}
+
 .action-btn.inject {
   background: var(--accent-primary);
   border-color: var(--accent-primary);

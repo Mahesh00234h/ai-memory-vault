@@ -123,6 +123,7 @@ const elements = {
   injectBtn: document.getElementById('injectBtn'),
   copyBtn: document.getElementById('copyBtn'),
   captureBtn: document.getElementById('captureBtn'),
+  recallV2Btn: document.getElementById('recallV2Btn'),
   
   // Toast
   toast: document.getElementById('toast')
@@ -1230,6 +1231,7 @@ function setupEventListeners() {
   elements.injectBtn?.addEventListener('click', handleInject);
   elements.copyBtn?.addEventListener('click', handleCopy);
   elements.captureBtn?.addEventListener('click', showCaptureView);
+  elements.recallV2Btn?.addEventListener('click', handleV2Recall);
   
   // Capture actions
   elements.captureSelection?.addEventListener('click', handleCaptureSelection);
@@ -1935,4 +1937,112 @@ function generateSummaryFromMessages(userMessages, aiMessages, topic) {
   }
   
   return summary;
+}
+
+// ===== V2 RECALL =====
+const SUPABASE_STORAGE_KEY = 'sb-meqqbjhfmrpsiqsexcif-auth-token';
+const WEB_APP_ORIGINS = [
+  'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app'
+];
+
+/**
+ * Attempt to fetch the web app's auth session token
+ * First tries cookies, then falls back to localStorage via scripting
+ */
+async function fetchWebSession() {
+  // Try cookies first
+  for (const origin of WEB_APP_ORIGINS) {
+    try {
+      const cookies = await chrome.cookies.getAll({ domain: new URL(origin).hostname });
+      const sbCookie = cookies.find(c => c.name === SUPABASE_STORAGE_KEY);
+      if (sbCookie?.value) {
+        try {
+          const decoded = decodeURIComponent(sbCookie.value);
+          const parsed = JSON.parse(decoded);
+          if (parsed.access_token) {
+            return parsed.access_token;
+          }
+        } catch {}
+      }
+    } catch (e) {
+      console.log('AI Context Bridge: cookie read failed', e);
+    }
+  }
+  
+  // Fallback: try localStorage via runtime messaging to the web app tab
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (WEB_APP_ORIGINS.some(o => tab.url?.startsWith(o))) {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (key) => localStorage.getItem(key),
+          args: [SUPABASE_STORAGE_KEY]
+        });
+        if (result?.[0]?.result) {
+          try {
+            const parsed = JSON.parse(result[0].result);
+            if (parsed.access_token) {
+              return parsed.access_token;
+            }
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+  
+  return null;
+}
+
+/**
+ * Handle V2 Recall button click
+ * Calls recall-memory endpoint and injects the promptBlock into the current chat
+ */
+async function handleV2Recall() {
+  const settings = (await chrome.storage.local.get('settings')).settings || {};
+  
+  if (!settings.useV2Ingest) {
+    showToast('Enable V2 Memory toggle first', 'error');
+    return;
+  }
+  
+  showToast('Recalling memories...', 'info');
+  
+  try {
+    // Get web session token
+    const token = await fetchWebSession();
+    if (!token) {
+      showToast('Sign in to the web app first', 'error');
+      return;
+    }
+    
+    // Get active project (if any)
+    const projectId = activeProjectId || null;
+    
+    // Call recall-memory API
+    const result = await window.API.recallMemory(token, {
+      query: '', // No filter, get recent memories
+      projectId: projectId,
+      limit: 10,
+      recencyDays: 30
+    });
+    
+    if (!result.success) {
+      showToast(result.error || 'Recall failed', 'error');
+      return;
+    }
+    
+    if (result.count === 0) {
+      showToast('No memories found. Capture some chats first!', 'info');
+      return;
+    }
+    
+    // Inject the promptBlock into the current chat
+    await injectOrCopy(result.promptBlock);
+    showToast(`Recalled ${result.count} memories!`, 'success');
+    
+  } catch (error) {
+    console.error('V2 Recall error:', error);
+    showToast(error.message || 'Recall failed', 'error');
+  }
 }
