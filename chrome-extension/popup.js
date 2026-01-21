@@ -38,6 +38,7 @@ const elements = {
   v2LoginBtn: document.getElementById('v2LoginBtn'),
   v2UserEmail: document.getElementById('v2UserEmail'),
   v2MigrateBtn: document.getElementById('v2MigrateBtn'),
+  v2RefreshBtn: document.getElementById('v2RefreshBtn'),
   
   // Views
   projectListView: document.getElementById('projectListView'),
@@ -433,6 +434,32 @@ async function handleV2Migrate() {
   } catch (e) {
     console.error('Migration failed:', e);
     showToast('Migration failed: ' + e.message, 'error');
+  }
+}
+
+async function handleV2RefreshSession() {
+  const refreshBtn = elements.v2RefreshBtn;
+  
+  // Add spinning animation
+  refreshBtn?.classList.add('refreshing');
+  
+  try {
+    showToast('Refreshing session...', 'info');
+    await checkV2AuthStatus();
+    
+    if (isV2Authenticated) {
+      showToast('Session refreshed!', 'success');
+    } else {
+      showToast('No active session found. Please log in.', 'error');
+    }
+  } catch (e) {
+    console.error('Session refresh failed:', e);
+    showToast('Refresh failed', 'error');
+  } finally {
+    // Remove spinning animation
+    setTimeout(() => {
+      refreshBtn?.classList.remove('refreshing');
+    }, 300);
   }
 }
 
@@ -1433,6 +1460,7 @@ function setupEventListeners() {
   // V2 Auth buttons
   elements.v2LoginBtn?.addEventListener('click', handleV2Login);
   elements.v2MigrateBtn?.addEventListener('click', handleV2Migrate);
+  elements.v2RefreshBtn?.addEventListener('click', handleV2RefreshSession);
   
   // Refresh/Manual capture button
   elements.refreshCaptureBtn?.addEventListener('click', handleManualCapture);
