@@ -18,8 +18,9 @@ let lastSyncTime = null;
 let syncQueueLength = 0;
 
 // V2 Auth State
-let v2Session = null; // { accessToken, user }
+let v2Session = null; // { accessToken, user, expiresAt }
 let isV2Authenticated = false;
+let v2SessionExpiresAt = null;
 
 // ===== DOM ELEMENTS =====
 const elements = {
@@ -289,22 +290,25 @@ async function checkV2AuthStatus() {
     if (session?.accessToken && session?.user) {
       v2Session = session;
       isV2Authenticated = true;
+      v2SessionExpiresAt = session.expiresAt || null;
       console.log('V2 Auth: Logged in as', session.user.email);
-      updateV2AuthUI(true, session.user);
+      updateV2AuthUI(true, session.user, session.expiresAt);
       
       // Store auth state for background script
       await chrome.storage.local.set({ 
         v2AuthToken: session.accessToken,
-        v2AuthUser: session.user
+        v2AuthUser: session.user,
+        v2SessionExpiresAt: session.expiresAt
       });
     } else {
       v2Session = null;
       isV2Authenticated = false;
+      v2SessionExpiresAt = null;
       console.log('V2 Auth: Not logged in');
       updateV2AuthUI(false);
       
       // Clear stored auth state
-      await chrome.storage.local.remove(['v2AuthToken', 'v2AuthUser']);
+      await chrome.storage.local.remove(['v2AuthToken', 'v2AuthUser', 'v2SessionExpiresAt']);
     }
   } catch (e) {
     console.error('V2 Auth check failed:', e);
@@ -313,10 +317,11 @@ async function checkV2AuthStatus() {
   }
 }
 
-function updateV2AuthUI(isAuthenticated, user = null) {
+function updateV2AuthUI(isAuthenticated, user = null, expiresAt = null) {
   const banner = elements.v2AuthBanner;
   const status = elements.v2AuthStatus;
   const emailEl = elements.v2UserEmail;
+  const expiryEl = document.getElementById('v2SessionExpiry');
   
   if (!banner || !status) return;
   
@@ -326,11 +331,52 @@ function updateV2AuthUI(isAuthenticated, user = null) {
     if (emailEl) {
       emailEl.textContent = user.email || 'Logged in';
     }
+    
+    // Update session expiry indicator
+    if (expiryEl && expiresAt) {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const expiresIn = expiresAt - nowSeconds;
+      
+      if (expiresIn <= 0) {
+        expiryEl.textContent = 'Session expired';
+        expiryEl.classList.add('expiring');
+      } else if (expiresIn < 5 * 60) {
+        expiryEl.textContent = `Expires in ${Math.floor(expiresIn / 60)}m`;
+        expiryEl.classList.add('expiring');
+      } else {
+        const hours = Math.floor(expiresIn / 3600);
+        const mins = Math.floor((expiresIn % 3600) / 60);
+        expiryEl.textContent = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+        expiryEl.classList.remove('expiring');
+      }
+      expiryEl.classList.remove('hidden');
+    }
   } else {
     banner.classList.remove('hidden');
     status.classList.add('hidden');
+    if (expiryEl) {
+      expiryEl.classList.add('hidden');
+    }
   }
 }
+
+// Listen for session updates from background script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'V2_SESSION_UPDATE') {
+    console.log('V2 Session update from background:', message);
+    if (message.hasSession) {
+      // Refresh the full session info
+      checkV2AuthStatus();
+    } else {
+      // Session lost
+      v2Session = null;
+      isV2Authenticated = false;
+      v2SessionExpiresAt = null;
+      updateV2AuthUI(false);
+    }
+  }
+  return false;
+});
 
 function handleV2Login() {
   const loginUrl = window.API?.getWebAppLoginUrl?.() || 'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app/login';
