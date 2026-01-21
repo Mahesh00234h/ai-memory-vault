@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.migrate-v1-memories]
 verify_jwt = false
+
+[functions.migrate-user-data]
+verify_jwt = false
