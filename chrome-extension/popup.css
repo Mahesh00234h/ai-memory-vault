@@ -1376,6 +1376,34 @@ main {
   50% { opacity: 0.6; }
 }
 
+.v2-auth-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.v2-auth-actions .btn-icon {
+  width: 26px;
+  height: 26px;
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: var(--accent-primary);
+}
+
+.v2-auth-actions .btn-icon:hover {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent-primary);
+}
+
+.v2-auth-actions .btn-icon.refreshing {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .v2-auth-status .btn-secondary {
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: 11px;

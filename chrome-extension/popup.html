@@ -64,12 +64,20 @@
           <span id="v2UserEmail">user@example.com</span>
           <span id="v2SessionExpiry" class="session-expiry hidden" title="Session expires in"></span>
         </div>
-        <button id="v2MigrateBtn" class="btn-secondary btn-sm" title="Migrate legacy data">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12l7 7 7-7"/>
-          </svg>
-          Migrate
-        </button>
+        <div class="v2-auth-actions">
+          <button id="v2RefreshBtn" class="btn-icon btn-sm" title="Refresh session">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M23 4v6h-6M1 20v-6h6"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+          </button>
+          <button id="v2MigrateBtn" class="btn-secondary btn-sm" title="Migrate legacy data">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12l7 7 7-7"/>
+            </svg>
+            Migrate
+          </button>
+        </div>
       </div>
 
       <!-- Header -->
