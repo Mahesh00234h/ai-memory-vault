@@ -3,10 +3,26 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Search, Calendar, FileText, Lightbulb, CheckCircle, HelpCircle, Copy, Check, RefreshCw, ArrowRightLeft } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  Search, 
+  Calendar, 
+  FileText, 
+  Lightbulb, 
+  CheckCircle, 
+  HelpCircle, 
+  Copy, 
+  Check, 
+  RefreshCw, 
+  ArrowRightLeft,
+  History,
+  Database,
+  Clock,
+  AlertCircle
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Memory {
@@ -21,6 +37,8 @@ interface Memory {
   source_url: string | null;
   created_at: string;
   project_id: string | null;
+  memory_version: number;
+  source_captured_at: string | null;
 }
 
 interface RecallResponse {
@@ -43,10 +61,19 @@ interface MigrationResponse {
   toMigrate?: number;
 }
 
+interface MigrationStats {
+  totalMemories: number;
+  v1Memories: number;
+  v2Memories: number;
+  oldestMigration: string | null;
+  latestMigration: string | null;
+}
+
 export function MemoriesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("all");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -76,8 +103,8 @@ export function MemoriesPage() {
           },
           body: JSON.stringify({
             query: debouncedQuery,
-            limit: 50,
-            recencyDays: 90,
+            limit: 100,
+            recencyDays: 365,
           }),
         }
       );
@@ -88,6 +115,42 @@ export function MemoriesPage() {
       }
 
       return response.json();
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  // Fetch migration stats
+  const { data: migrationStats } = useQuery<MigrationStats>({
+    queryKey: ["migration-stats"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user?.id) {
+        throw new Error("Not authenticated");
+      }
+
+      // Get counts by version
+      const { data: memories, error } = await supabase
+        .from("memories")
+        .select("id, memory_version, created_at")
+        .eq("user_id", session.user.id);
+
+      if (error) throw error;
+
+      const v1Memories = memories?.filter(m => m.memory_version === 1) || [];
+      const v2Memories = memories?.filter(m => m.memory_version !== 1) || [];
+      
+      // Sort v1 memories by created_at for migration timeline
+      const sortedV1 = [...v1Memories].sort((a, b) => 
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+
+      return {
+        totalMemories: memories?.length || 0,
+        v1Memories: v1Memories.length,
+        v2Memories: v2Memories.length,
+        oldestMigration: sortedV1.length > 0 ? sortedV1[0].created_at : null,
+        latestMigration: sortedV1.length > 0 ? sortedV1[sortedV1.length - 1].created_at : null,
+      };
     },
     refetchOnWindowFocus: false,
   });
@@ -224,6 +287,13 @@ export function MemoriesPage() {
     return date.toLocaleDateString();
   };
 
+  // Filter memories based on active tab
+  const filteredMemories = data?.memories?.filter(memory => {
+    if (activeTab === "migrated") return memory.memory_version === 1;
+    if (activeTab === "native") return memory.memory_version !== 1;
+    return true;
+  }) || [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -266,80 +336,213 @@ export function MemoriesPage() {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Search memories by keyword..."
-          value={searchQuery}
-          onChange={(e) => handleSearch(e.target.value)}
-          className="pl-10"
-        />
-      </div>
-
-      {/* Stats */}
-      {data?.count !== undefined && (
-        <div className="text-sm text-muted-foreground">
-          {data.count} {data.count === 1 ? "memory" : "memories"} found
-          {debouncedQuery && ` matching "${debouncedQuery}"`}
+      {/* Migration Stats Cards */}
+      {migrationStats && migrationStats.v1Memories > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Total Memories
+              </CardDescription>
+              <CardTitle className="text-3xl">{migrationStats.totalMemories}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card className="bg-gradient-to-br from-amber-500/5 to-amber-500/10 border-amber-500/20">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <History className="h-4 w-4" />
+                Migrated from V1
+              </CardDescription>
+              <CardTitle className="text-3xl">{migrationStats.v1Memories}</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <p className="text-xs text-muted-foreground">
+                {migrationStats.oldestMigration && (
+                  <>From {new Date(migrationStats.oldestMigration).toLocaleDateString()}</>
+                )}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="bg-gradient-to-br from-green-500/5 to-green-500/10 border-green-500/20">
+            <CardHeader className="pb-2">
+              <CardDescription className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4" />
+                Native V2
+              </CardDescription>
+              <CardTitle className="text-3xl">{migrationStats.v2Memories}</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <p className="text-xs text-muted-foreground">
+                Captured with V2 extension
+              </p>
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      {/* Error state */}
-      {error && (
-        <Card className="border-destructive">
-          <CardContent className="pt-6">
-            <p className="text-destructive">{(error as Error).message}</p>
-            <Button variant="outline" onClick={() => refetch()} className="mt-4">
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      )}
+      {/* Tabs for filtering */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <TabsList>
+            <TabsTrigger value="all" className="gap-2">
+              <FileText className="h-4 w-4" />
+              All
+              {data?.count !== undefined && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {data.count}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="migrated" className="gap-2">
+              <History className="h-4 w-4" />
+              Migrated
+              {migrationStats?.v1Memories !== undefined && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {migrationStats.v1Memories}
+                </Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="native" className="gap-2">
+              <CheckCircle className="h-4 w-4" />
+              Native
+              {migrationStats?.v2Memories !== undefined && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {migrationStats.v2Memories}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-      {/* Loading state */}
-      {isLoading && (
-        <div className="grid gap-4">
-          {[1, 2, 3].map((i) => (
-            <Card key={i}>
-              <CardHeader>
-                <Skeleton className="h-6 w-2/3" />
-                <Skeleton className="h-4 w-1/3" />
-              </CardHeader>
-              <CardContent>
-                <Skeleton className="h-16 w-full" />
+          {/* Search */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search memories by keyword..."
+              value={searchQuery}
+              onChange={(e) => handleSearch(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </div>
+
+        {/* Stats */}
+        {filteredMemories.length > 0 && (
+          <div className="text-sm text-muted-foreground mt-4">
+            {filteredMemories.length} {filteredMemories.length === 1 ? "memory" : "memories"}
+            {activeTab === "migrated" && " migrated from V1"}
+            {activeTab === "native" && " captured natively"}
+            {debouncedQuery && ` matching "${debouncedQuery}"`}
+          </div>
+        )}
+
+        {/* Error state */}
+        {error && (
+          <Card className="border-destructive mt-4">
+            <CardContent className="pt-6">
+              <p className="text-destructive">{(error as Error).message}</p>
+              <Button variant="outline" onClick={() => refetch()} className="mt-4">
+                Retry
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Loading state */}
+        {isLoading && (
+          <div className="grid gap-4 mt-4">
+            {[1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <Skeleton className="h-6 w-2/3" />
+                  <Skeleton className="h-4 w-1/3" />
+                </CardHeader>
+                <CardContent>
+                  <Skeleton className="h-16 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Empty states */}
+        <TabsContent value="all" className="mt-4">
+          {!isLoading && filteredMemories.length === 0 && (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-semibold">No memories yet</h3>
+                <p className="text-muted-foreground max-w-sm mt-1">
+                  {debouncedQuery
+                    ? `No memories match "${debouncedQuery}". Try a different search.`
+                    : "Enable V2 Memory in the Chrome extension and capture some AI conversations to see them here."}
+                </p>
               </CardContent>
             </Card>
-          ))}
-        </div>
-      )}
+          )}
+        </TabsContent>
 
-      {/* Empty state */}
-      {!isLoading && data?.count === 0 && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <FileText className="h-12 w-12 text-muted-foreground/50 mb-4" />
-            <h3 className="text-lg font-semibold">No memories yet</h3>
-            <p className="text-muted-foreground max-w-sm mt-1">
-              {debouncedQuery
-                ? `No memories match "${debouncedQuery}". Try a different search.`
-                : "Enable V2 Memory in the Chrome extension and capture some AI conversations to see them here."}
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        <TabsContent value="migrated" className="mt-4">
+          {!isLoading && filteredMemories.length === 0 && (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <History className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-semibold">No migrated memories</h3>
+                <p className="text-muted-foreground max-w-sm mt-1">
+                  Click "Migrate V1" to import your legacy captured contexts from the old extension format.
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => migrationMutation.mutate(true)}
+                  disabled={migrationMutation.isPending}
+                  className="mt-4 gap-2"
+                >
+                  {migrationMutation.isPending ? (
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ArrowRightLeft className="h-4 w-4" />
+                  )}
+                  Preview Migration
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="native" className="mt-4">
+          {!isLoading && filteredMemories.length === 0 && (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <AlertCircle className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-semibold">No native V2 memories</h3>
+                <p className="text-muted-foreground max-w-sm mt-1">
+                  Enable the "V2 Memory" toggle in the Chrome extension to start capturing conversations directly to V2.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
 
       {/* Memory cards */}
-      {!isLoading && data?.memories && data.memories.length > 0 && (
+      {!isLoading && filteredMemories.length > 0 && (
         <div className="grid gap-4">
-          {data.memories.map((memory) => (
+          {filteredMemories.map((memory) => (
             <Card key={memory.id} className="group">
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1 flex-1">
-                    <CardTitle className="text-lg leading-tight">
-                      {memory.title}
-                    </CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg leading-tight">
+                        {memory.title}
+                      </CardTitle>
+                      {memory.memory_version === 1 && (
+                        <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
+                          <History className="h-3 w-3 mr-1" />
+                          Migrated
+                        </Badge>
+                      )}
+                    </div>
                     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                       {memory.source_platform && (
                         <Badge variant="secondary" className="text-xs">
@@ -355,6 +558,12 @@ export function MemoriesPage() {
                         <Calendar className="h-3 w-3" />
                         {formatDate(memory.created_at)}
                       </span>
+                      {memory.memory_version === 1 && memory.source_captured_at && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground/70">
+                          <Clock className="h-3 w-3" />
+                          Originally: {formatDate(memory.source_captured_at)}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <Button

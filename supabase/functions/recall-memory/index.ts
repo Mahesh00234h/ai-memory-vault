@@ -34,6 +34,9 @@ type MemoryBlock = {
   source_platform: string | null;
   source_url: string | null;
   created_at: string;
+  memory_version: number;
+  source_captured_at: string | null;
+  project_id: string | null;
   relevance_score?: number;
 };
 
@@ -158,7 +161,7 @@ serve(async (req) => {
     // Build the query
     let dbQuery = supabase
       .from("memories")
-      .select("id, title, topic, summary, key_points, decisions, open_questions, source_platform, source_url, created_at")
+      .select("id, title, topic, summary, key_points, decisions, open_questions, source_platform, source_url, created_at, memory_version, source_captured_at, project_id")
       .eq("user_id", userData.user.id)
       .gte("created_at", new Date(Date.now() - recencyDays * 24 * 60 * 60 * 1000).toISOString())
       .order("created_at", { ascending: false })
