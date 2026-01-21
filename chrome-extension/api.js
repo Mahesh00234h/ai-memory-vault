@@ -2,16 +2,27 @@
  * AI Context Bridge - API Module
  * Handles all communication with Lovable Cloud backend
  * Includes Realtime subscriptions for team sync
+ * V2: Supabase Auth session detection from web app
  */
 
 const SUPABASE_URL = 'https://meqqbjhfmrpsiqsexcif.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1lcXFiamhmbXJwc2lxc2V4Y2lmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg0MDkzNzUsImV4cCI6MjA4Mzk4NTM3NX0.pqoNxaO0CtEFpGSYOZ3JZk7S3B1EOEYuh9mymP1mDqI';
+
+// Web app origins for session sharing
+const WEB_APP_ORIGINS = [
+  'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app'
+];
+const SUPABASE_STORAGE_KEY = 'sb-meqqbjhfmrpsiqsexcif-auth-token';
 
 const headers = {
   'Content-Type': 'application/json',
   'apikey': SUPABASE_ANON_KEY,
   'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
 };
+
+// ===== V2 AUTH STATE =====
+let cachedV2Session = null;
+let v2AuthUser = null;
 
 // ===== REALTIME STATE =====
 let realtimeSocket = null;
@@ -410,6 +421,142 @@ async function recallMemory(accessToken, options = {}) {
   return await response.json();
 }
 
+// ===== V2 AUTH SESSION DETECTION =====
+
+/**
+ * Try to read Supabase auth session from web app via cookies or localStorage
+ * @returns {Promise<{accessToken: string, user: object}|null>}
+ */
+async function detectV2Session() {
+  // Try cookies first
+  for (const origin of WEB_APP_ORIGINS) {
+    try {
+      const hostname = new URL(origin).hostname;
+      const cookies = await chrome.cookies.getAll({ domain: hostname });
+      const sbCookie = cookies.find(c => c.name === SUPABASE_STORAGE_KEY);
+      
+      if (sbCookie?.value) {
+        try {
+          const decoded = decodeURIComponent(sbCookie.value);
+          const parsed = JSON.parse(decoded);
+          
+          if (parsed.access_token && parsed.user) {
+            // Check if token is expired
+            const exp = parsed.expires_at || 0;
+            if (exp * 1000 > Date.now()) {
+              cachedV2Session = parsed.access_token;
+              v2AuthUser = parsed.user;
+              return { accessToken: parsed.access_token, user: parsed.user };
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to parse session cookie:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('Cookie read failed:', e);
+    }
+  }
+
+  // Fallback: try to read localStorage from web app tab
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (WEB_APP_ORIGINS.some(o => tab.url?.startsWith(o))) {
+        const result = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: (key) => localStorage.getItem(key),
+          args: [SUPABASE_STORAGE_KEY]
+        });
+        
+        if (result?.[0]?.result) {
+          try {
+            const parsed = JSON.parse(result[0].result);
+            if (parsed.access_token && parsed.user) {
+              const exp = parsed.expires_at || 0;
+              if (exp * 1000 > Date.now()) {
+                cachedV2Session = parsed.access_token;
+                v2AuthUser = parsed.user;
+                return { accessToken: parsed.access_token, user: parsed.user };
+              }
+            }
+          } catch (e) {
+            console.warn('Failed to parse localStorage session:', e);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('localStorage read failed:', e);
+  }
+
+  // Clear cached session if nothing found
+  cachedV2Session = null;
+  v2AuthUser = null;
+  return null;
+}
+
+/**
+ * Get cached V2 session or detect fresh
+ * @param {boolean} forceRefresh - Force re-detection
+ * @returns {Promise<{accessToken: string, user: object}|null>}
+ */
+async function getV2Session(forceRefresh = false) {
+  if (!forceRefresh && cachedV2Session && v2AuthUser) {
+    return { accessToken: cachedV2Session, user: v2AuthUser };
+  }
+  return await detectV2Session();
+}
+
+/**
+ * Clear cached V2 session (for logout)
+ */
+function clearV2Session() {
+  cachedV2Session = null;
+  v2AuthUser = null;
+}
+
+/**
+ * Get the web app login URL
+ * @returns {string}
+ */
+function getWebAppLoginUrl() {
+  return WEB_APP_ORIGINS[0] + '/login';
+}
+
+/**
+ * Get the web app base URL
+ * @returns {string}
+ */
+function getWebAppUrl() {
+  return WEB_APP_ORIGINS[0];
+}
+
+/**
+ * Migrate legacy user data to V2
+ * @param {string} accessToken - V2 auth token
+ * @param {string} legacyUserId - Legacy extension_users ID
+ * @param {boolean} dryRun - Preview only
+ * @returns {Promise<object>}
+ */
+async function migrateUserData(accessToken, legacyUserId, dryRun = false) {
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/migrate-user-data`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`
+    },
+    body: JSON.stringify({ legacyUserId, dryRun })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`migrate-user-data failed (${response.status}): ${text}`);
+  }
+
+  return await response.json();
+}
+
 // Export for use in popup.js
 if (typeof window !== 'undefined') {
   window.API = {
@@ -432,6 +579,13 @@ if (typeof window !== 'undefined') {
     fetchCloudContexts,
     subscribeToTeamContexts,
     unsubscribeFromRealtime,
-    recallMemory
+    recallMemory,
+    // V2 Auth functions
+    detectV2Session,
+    getV2Session,
+    clearV2Session,
+    getWebAppLoginUrl,
+    getWebAppUrl,
+    migrateUserData
   };
 }
