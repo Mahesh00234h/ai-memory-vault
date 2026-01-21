@@ -2119,57 +2119,21 @@ function generateSummaryFromMessages(userMessages, aiMessages, topic) {
 }
 
 // ===== V2 RECALL =====
-const SUPABASE_STORAGE_KEY = 'sb-meqqbjhfmrpsiqsexcif-auth-token';
-const WEB_APP_ORIGINS = [
-  'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app'
-];
 
 /**
  * Attempt to fetch the web app's auth session token
- * First tries cookies, then falls back to localStorage via scripting
+ * Uses the API module's session detection
  */
 async function fetchWebSession() {
-  // Try cookies first
-  for (const origin of WEB_APP_ORIGINS) {
+  // Use the API's session detection which handles cookies and localStorage
+  if (window.API?.detectV2Session) {
     try {
-      const cookies = await chrome.cookies.getAll({ domain: new URL(origin).hostname });
-      const sbCookie = cookies.find(c => c.name === SUPABASE_STORAGE_KEY);
-      if (sbCookie?.value) {
-        try {
-          const decoded = decodeURIComponent(sbCookie.value);
-          const parsed = JSON.parse(decoded);
-          if (parsed.access_token) {
-            return parsed.access_token;
-          }
-        } catch {}
-      }
+      const session = await window.API.detectV2Session();
+      return session?.accessToken || null;
     } catch (e) {
-      console.log('AI Context Bridge: cookie read failed', e);
+      console.log('AI Context Bridge: session detection failed', e);
     }
   }
-  
-  // Fallback: try localStorage via runtime messaging to the web app tab
-  try {
-    const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (WEB_APP_ORIGINS.some(o => tab.url?.startsWith(o))) {
-        const result = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: (key) => localStorage.getItem(key),
-          args: [SUPABASE_STORAGE_KEY]
-        });
-        if (result?.[0]?.result) {
-          try {
-            const parsed = JSON.parse(result[0].result);
-            if (parsed.access_token) {
-              return parsed.access_token;
-            }
-          } catch {}
-        }
-      }
-    }
-  } catch {}
-  
   return null;
 }
 
