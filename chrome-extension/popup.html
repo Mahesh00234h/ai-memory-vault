@@ -39,6 +39,38 @@
 
     <!-- Main App (after onboarding) - hidden by default -->
     <div id="mainApp" class="hidden">
+      <!-- V2 Auth Banner (shown when not logged in) -->
+      <div id="v2AuthBanner" class="v2-auth-banner hidden">
+        <div class="v2-auth-content">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M12 16v-4M12 8h.01"/>
+          </svg>
+          <div class="v2-auth-text">
+            <span class="v2-auth-title">V2 Features Locked</span>
+            <span class="v2-auth-desc">Log in to enable memory sync</span>
+          </div>
+        </div>
+        <button id="v2LoginBtn" class="btn-primary btn-sm">Log In</button>
+      </div>
+
+      <!-- V2 Auth Status (shown when logged in) -->
+      <div id="v2AuthStatus" class="v2-auth-status hidden">
+        <div class="v2-auth-user">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
+          <span id="v2UserEmail">user@example.com</span>
+        </div>
+        <button id="v2MigrateBtn" class="btn-secondary btn-sm" title="Migrate legacy data">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 5v14M5 12l7 7 7-7"/>
+          </svg>
+          Migrate
+        </button>
+      </div>
+
       <!-- Header -->
       <header class="header">
         <div class="logo">

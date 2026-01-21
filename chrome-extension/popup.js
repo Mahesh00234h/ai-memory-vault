@@ -17,6 +17,10 @@ let isOnline = navigator.onLine;
 let lastSyncTime = null;
 let syncQueueLength = 0;
 
+// V2 Auth State
+let v2Session = null; // { accessToken, user }
+let isV2Authenticated = false;
+
 // ===== DOM ELEMENTS =====
 const elements = {
   // Onboarding
@@ -26,6 +30,13 @@ const elements = {
   mainApp: document.getElementById('mainApp'),
   userNameDisplay: document.getElementById('userNameDisplay'),
   syncStatusBtn: document.getElementById('syncStatusBtn'),
+  
+  // V2 Auth Elements
+  v2AuthBanner: document.getElementById('v2AuthBanner'),
+  v2AuthStatus: document.getElementById('v2AuthStatus'),
+  v2LoginBtn: document.getElementById('v2LoginBtn'),
+  v2UserEmail: document.getElementById('v2UserEmail'),
+  v2MigrateBtn: document.getElementById('v2MigrateBtn'),
   
   // Views
   projectListView: document.getElementById('projectListView'),
@@ -251,6 +262,9 @@ async function showMainApp() {
   updateCapturedBadge();
   updateSyncStatus();
   
+  // Check V2 auth status
+  await checkV2AuthStatus();
+  
   // Try to sync with cloud (don't block on failure)
   if (window.API && currentUser && !currentUser.id.startsWith('local_')) {
     try {
@@ -258,6 +272,121 @@ async function showMainApp() {
     } catch (e) {
       console.warn('Cloud sync failed:', e);
     }
+  }
+}
+
+// ===== V2 AUTH FUNCTIONS =====
+
+async function checkV2AuthStatus() {
+  if (!window.API?.detectV2Session) {
+    console.log('V2 API not available');
+    updateV2AuthUI(false);
+    return;
+  }
+  
+  try {
+    const session = await window.API.detectV2Session();
+    if (session?.accessToken && session?.user) {
+      v2Session = session;
+      isV2Authenticated = true;
+      console.log('V2 Auth: Logged in as', session.user.email);
+      updateV2AuthUI(true, session.user);
+      
+      // Store auth state for background script
+      await chrome.storage.local.set({ 
+        v2AuthToken: session.accessToken,
+        v2AuthUser: session.user
+      });
+    } else {
+      v2Session = null;
+      isV2Authenticated = false;
+      console.log('V2 Auth: Not logged in');
+      updateV2AuthUI(false);
+      
+      // Clear stored auth state
+      await chrome.storage.local.remove(['v2AuthToken', 'v2AuthUser']);
+    }
+  } catch (e) {
+    console.error('V2 Auth check failed:', e);
+    isV2Authenticated = false;
+    updateV2AuthUI(false);
+  }
+}
+
+function updateV2AuthUI(isAuthenticated, user = null) {
+  const banner = elements.v2AuthBanner;
+  const status = elements.v2AuthStatus;
+  const emailEl = elements.v2UserEmail;
+  
+  if (!banner || !status) return;
+  
+  if (isAuthenticated && user) {
+    banner.classList.add('hidden');
+    status.classList.remove('hidden');
+    if (emailEl) {
+      emailEl.textContent = user.email || 'Logged in';
+    }
+  } else {
+    banner.classList.remove('hidden');
+    status.classList.add('hidden');
+  }
+}
+
+function handleV2Login() {
+  const loginUrl = window.API?.getWebAppLoginUrl?.() || 'https://id-preview--92d58f64-a466-44ec-970c-cae01f8e0034.lovable.app/login';
+  chrome.tabs.create({ url: loginUrl });
+}
+
+async function handleV2Migrate() {
+  if (!isV2Authenticated || !v2Session) {
+    showToast('Please log in first', 'error');
+    return;
+  }
+  
+  // Get legacy user ID
+  const storage = await chrome.storage.local.get(['userId']);
+  const legacyUserId = storage.userId;
+  
+  if (!legacyUserId) {
+    showToast('No legacy user found', 'info');
+    return;
+  }
+  
+  if (legacyUserId.startsWith('local_')) {
+    showToast('Local-only users cannot migrate', 'error');
+    return;
+  }
+  
+  try {
+    showToast('Starting migration...', 'info');
+    
+    // First do a dry run
+    const dryResult = await window.API.migrateUserData(v2Session.accessToken, legacyUserId, true);
+    
+    if (dryResult.summary?.toMigrate === 0) {
+      showToast('No data to migrate', 'info');
+      return;
+    }
+    
+    // Confirm with user
+    const confirmMsg = `Migrate ${dryResult.summary.toMigrate} contexts to V2?`;
+    if (!confirm(confirmMsg)) {
+      showToast('Migration cancelled', 'info');
+      return;
+    }
+    
+    // Perform actual migration
+    const result = await window.API.migrateUserData(v2Session.accessToken, legacyUserId, false);
+    
+    if (result.success) {
+      showToast(`Migrated ${result.summary?.inserted || 0} contexts!`, 'success');
+    } else {
+      showToast('Migration had some errors', 'error');
+      console.error('Migration errors:', result.errors);
+    }
+  } catch (e) {
+    console.error('Migration failed:', e);
+    showToast('Migration failed: ' + e.message, 'error');
   }
 }
 
@@ -1254,6 +1383,10 @@ function setupEventListeners() {
     saveSettings({ useV2Ingest: e.target.checked });
     showToast(e.target.checked ? 'V2 Memory ingest enabled (beta)' : 'V2 Memory ingest disabled');
   });
+  
+  // V2 Auth buttons
+  elements.v2LoginBtn?.addEventListener('click', handleV2Login);
+  elements.v2MigrateBtn?.addEventListener('click', handleV2Migrate);
   
   // Refresh/Manual capture button
   elements.refreshCaptureBtn?.addEventListener('click', handleManualCapture);
