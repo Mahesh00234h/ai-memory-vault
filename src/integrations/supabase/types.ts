@@ -20,6 +20,7 @@ export type Database = {
           decisions: Json | null
           id: string
           key_points: Json | null
+          legacy_user_id: string | null
           message_count: number | null
           open_questions: Json | null
           platform: string | null
@@ -38,6 +39,7 @@ export type Database = {
           decisions?: Json | null
           id?: string
           key_points?: Json | null
+          legacy_user_id?: string | null
           message_count?: number | null
           open_questions?: Json | null
           platform?: string | null
@@ -56,6 +58,7 @@ export type Database = {
           decisions?: Json | null
           id?: string
           key_points?: Json | null
+          legacy_user_id?: string | null
           message_count?: number | null
           open_questions?: Json | null
           platform?: string | null
@@ -90,18 +93,21 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          migrated_to_auth_id: string | null
           name: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           id?: string
+          migrated_to_auth_id?: string | null
           name: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           id?: string
+          migrated_to_auth_id?: string | null
           name?: string
           updated_at?: string
         }
