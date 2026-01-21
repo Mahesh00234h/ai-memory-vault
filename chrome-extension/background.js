@@ -19,6 +19,8 @@ let lastCaptureTime = {};
 const CAPTURE_COOLDOWN = 120000;
 let isAnalyzing = {}; // Track which URLs are being analyzed
 let cachedWebSession = null; // JWT access_token from web app
+let cachedSessionExpiry = 0; // Token expiry timestamp (seconds)
+let sessionMonitorInterval = null; // Session monitor interval ID
 
 // ===== OFFLINE MODE & SYNC QUEUE =====
 let isOnline = true;
@@ -210,6 +212,7 @@ async function fetchWebSession() {
           const parsed = JSON.parse(decoded);
           if (parsed.access_token) {
             cachedWebSession = parsed.access_token;
+            cachedSessionExpiry = parsed.expires_at || 0;
             return parsed.access_token;
           }
         } catch {}
@@ -233,6 +236,7 @@ async function fetchWebSession() {
             const parsed = JSON.parse(result[0].result);
             if (parsed.access_token) {
               cachedWebSession = parsed.access_token;
+              cachedSessionExpiry = parsed.expires_at || 0;
               return parsed.access_token;
             }
           } catch {}
@@ -242,6 +246,121 @@ async function fetchWebSession() {
   } catch {}
   return null;
 }
+
+// ===== V2 SESSION MONITOR =====
+// Check if token is expired or about to expire (within 5 minutes)
+function isSessionExpiringSoon() {
+  if (!cachedSessionExpiry) return true;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const bufferSeconds = 5 * 60; // 5 minute buffer
+  return nowSeconds >= (cachedSessionExpiry - bufferSeconds);
+}
+
+// Monitor session and refresh when needed
+async function monitorSession() {
+  console.log('AI Context Bridge: Session monitor tick');
+  
+  // Check if we have a cached session that's expiring soon
+  if (cachedWebSession && isSessionExpiringSoon()) {
+    console.log('AI Context Bridge: Session expiring soon, refreshing...');
+    cachedWebSession = null;
+    cachedSessionExpiry = 0;
+  }
+  
+  // Try to detect/refresh session
+  const session = await fetchWebSession();
+  
+  if (session) {
+    console.log('AI Context Bridge: Session active, expires:', new Date(cachedSessionExpiry * 1000).toISOString());
+    
+    // Process any pending V2 queue items
+    processV2Queue();
+    
+    // Broadcast session status to popup if open
+    chrome.runtime.sendMessage({
+      type: 'V2_SESSION_UPDATE',
+      hasSession: true,
+      expiresAt: cachedSessionExpiry
+    }).catch(() => {}); // Ignore if popup closed
+  } else {
+    console.log('AI Context Bridge: No active session');
+    
+    chrome.runtime.sendMessage({
+      type: 'V2_SESSION_UPDATE',
+      hasSession: false,
+      expiresAt: null
+    }).catch(() => {});
+  }
+}
+
+// Start session monitoring (every 2 minutes)
+function startSessionMonitor() {
+  if (sessionMonitorInterval) {
+    clearInterval(sessionMonitorInterval);
+  }
+  
+  // Initial check
+  monitorSession();
+  
+  // Check every 2 minutes
+  sessionMonitorInterval = setInterval(monitorSession, 2 * 60 * 1000);
+  console.log('AI Context Bridge: Session monitor started');
+}
+
+// Stop session monitoring
+function stopSessionMonitor() {
+  if (sessionMonitorInterval) {
+    clearInterval(sessionMonitorInterval);
+    sessionMonitorInterval = null;
+    console.log('AI Context Bridge: Session monitor stopped');
+  }
+}
+
+// Initialize session monitor on startup
+(async () => {
+  // Wait a moment for extension to fully initialize
+  await new Promise(r => setTimeout(r, 1000));
+  startSessionMonitor();
+})();
+
+// Listen for tab updates to detect web app navigation
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') return;
+  
+  // Check if navigated to/from web app
+  if (WEB_APP_ORIGINS.some(o => tab.url?.startsWith(o))) {
+    console.log('AI Context Bridge: Web app tab detected, checking session...');
+    // Small delay to let the page fully load
+    await new Promise(r => setTimeout(r, 500));
+    monitorSession();
+  }
+});
+
+// Handle V2 session requests from popup
+chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
+  if (req.type === 'GET_V2_SESSION_STATUS') {
+    sendResponse({
+      hasSession: !!cachedWebSession,
+      expiresAt: cachedSessionExpiry,
+      isExpiringSoon: isSessionExpiringSoon()
+    });
+    return true;
+  }
+  
+  if (req.type === 'REFRESH_V2_SESSION') {
+    cachedWebSession = null;
+    cachedSessionExpiry = 0;
+    monitorSession().then(() => {
+      sendResponse({
+        hasSession: !!cachedWebSession,
+        expiresAt: cachedSessionExpiry
+      });
+    });
+    return true;
+  }
+  
+  return false; // Let other handlers process
+});
 
 // Queue for V2 ingest calls
 let v2IngestQueue = [];

@@ -22,6 +22,7 @@ const headers = {
 
 // ===== V2 AUTH STATE =====
 let cachedV2Session = null;
+let cachedV2Expiry = 0;
 let v2AuthUser = null;
 
 // ===== REALTIME STATE =====
@@ -445,8 +446,9 @@ async function detectV2Session() {
             const exp = parsed.expires_at || 0;
             if (exp * 1000 > Date.now()) {
               cachedV2Session = parsed.access_token;
+              cachedV2Expiry = exp;
               v2AuthUser = parsed.user;
-              return { accessToken: parsed.access_token, user: parsed.user };
+              return { accessToken: parsed.access_token, user: parsed.user, expiresAt: exp };
             }
           }
         } catch (e) {
@@ -476,8 +478,9 @@ async function detectV2Session() {
               const exp = parsed.expires_at || 0;
               if (exp * 1000 > Date.now()) {
                 cachedV2Session = parsed.access_token;
+                cachedV2Expiry = exp;
                 v2AuthUser = parsed.user;
-                return { accessToken: parsed.access_token, user: parsed.user };
+                return { accessToken: parsed.access_token, user: parsed.user, expiresAt: exp };
               }
             }
           } catch (e) {
@@ -492,8 +495,34 @@ async function detectV2Session() {
 
   // Clear cached session if nothing found
   cachedV2Session = null;
+  cachedV2Expiry = 0;
   v2AuthUser = null;
   return null;
+}
+
+/**
+ * Check if session is expiring soon (within 5 minutes)
+ * @returns {boolean}
+ */
+function isV2SessionExpiringSoon() {
+  if (!cachedV2Expiry) return true;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const bufferSeconds = 5 * 60; // 5 minute buffer
+  return nowSeconds >= (cachedV2Expiry - bufferSeconds);
+}
+
+/**
+ * Get session expiry info
+ * @returns {{ expiresAt: number, expiresIn: number, isExpiringSoon: boolean }}
+ */
+function getV2SessionExpiry() {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const expiresIn = cachedV2Expiry ? Math.max(0, cachedV2Expiry - nowSeconds) : 0;
+  return {
+    expiresAt: cachedV2Expiry,
+    expiresIn,
+    isExpiringSoon: isV2SessionExpiringSoon()
+  };
 }
 
 /**
@@ -502,8 +531,9 @@ async function detectV2Session() {
  * @returns {Promise<{accessToken: string, user: object}|null>}
  */
 async function getV2Session(forceRefresh = false) {
-  if (!forceRefresh && cachedV2Session && v2AuthUser) {
-    return { accessToken: cachedV2Session, user: v2AuthUser };
+  // Force refresh if session is expiring soon
+  if (!forceRefresh && cachedV2Session && v2AuthUser && !isV2SessionExpiringSoon()) {
+    return { accessToken: cachedV2Session, user: v2AuthUser, expiresAt: cachedV2Expiry };
   }
   return await detectV2Session();
 }
@@ -513,6 +543,7 @@ async function getV2Session(forceRefresh = false) {
  */
 function clearV2Session() {
   cachedV2Session = null;
+  cachedV2Expiry = 0;
   v2AuthUser = null;
 }
 
@@ -586,6 +617,9 @@ if (typeof window !== 'undefined') {
     clearV2Session,
     getWebAppLoginUrl,
     getWebAppUrl,
-    migrateUserData
+    migrateUserData,
+    // V2 Session expiry utilities
+    isV2SessionExpiringSoon,
+    getV2SessionExpiry
   };
 }
