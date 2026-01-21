@@ -138,6 +138,10 @@ const elements = {
   captureBtn: document.getElementById('captureBtn'),
   recallV2Btn: document.getElementById('recallV2Btn'),
   
+  // Keyboard Shortcuts
+  toggleShortcuts: document.getElementById('toggleShortcuts'),
+  shortcutsPanel: document.getElementById('shortcutsPanel'),
+  
   // Toast
   toast: document.getElementById('toast')
 };
@@ -1468,6 +1472,16 @@ function setupEventListeners() {
   // Sync button
   elements.syncStatusBtn?.addEventListener('click', syncWithCloud);
   
+  // Keyboard shortcuts toggle
+  elements.toggleShortcuts?.addEventListener('click', toggleShortcutsPanel);
+  
+  // Close shortcuts panel when clicking outside
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.shortcuts-hint') && elements.shortcutsPanel) {
+      elements.shortcutsPanel.classList.add('hidden');
+    }
+  });
+  
   // Online/offline events
   window.addEventListener('online', () => {
     isOnline = true;
@@ -1477,6 +1491,10 @@ function setupEventListeners() {
   window.addEventListener('offline', () => {
     isOnline = false;
   });
+}
+
+function toggleShortcutsPanel() {
+  elements.shortcutsPanel?.classList.toggle('hidden');
 }
 
 function handleFormSubmit(e) {

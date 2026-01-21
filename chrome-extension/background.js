@@ -198,6 +198,196 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: 'capture-selection', title: 'Capture to AI Context Bridge', contexts: ['selection'] });
 });
 
+// ===== KEYBOARD SHORTCUTS =====
+chrome.commands.onCommand.addListener(async (command) => {
+  console.log('AI Context Bridge: Command received:', command);
+  
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) {
+    console.log('AI Context Bridge: No active tab for command');
+    return;
+  }
+  
+  const platform = detectPlatform(tab.url);
+  
+  switch (command) {
+    case 'quick-recall':
+      await handleQuickRecall(tab);
+      break;
+    case 'quick-capture':
+      await handleQuickCapture(tab, platform);
+      break;
+    case 'quick-inject':
+      await handleQuickInject(tab);
+      break;
+  }
+});
+
+// Handle quick recall (V2 memory recall)
+async function handleQuickRecall(tab) {
+  const settings = (await chrome.storage.local.get('settings')).settings || {};
+  
+  if (!settings.useV2Ingest) {
+    // Show notification that V2 is required
+    notifyUser('Enable V2 Memory in the extension popup first', 'warning');
+    return;
+  }
+  
+  const token = cachedWebSession || (await fetchWebSession());
+  if (!token) {
+    notifyUser('Please log in to the web app first', 'error');
+    return;
+  }
+  
+  try {
+    const storage = await chrome.storage.local.get(['activeProjectId']);
+    const projectId = storage.activeProjectId || null;
+    
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/recall-memory`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        query: '',
+        projectId: projectId,
+        limit: 10,
+        recencyDays: 30
+      })
+    });
+    
+    if (!resp.ok) {
+      notifyUser('Recall failed', 'error');
+      return;
+    }
+    
+    const result = await resp.json();
+    
+    if (result.count === 0) {
+      notifyUser('No memories found', 'info');
+      return;
+    }
+    
+    // Send to content script to inject
+    chrome.tabs.sendMessage(tab.id, {
+      type: 'INJECT_CONTEXT',
+      context: result.promptBlock
+    }, (response) => {
+      if (chrome.runtime.lastError || !response?.success) {
+        // Fallback: copy to clipboard
+        copyToClipboard(result.promptBlock);
+        notifyUser(`Recalled ${result.count} memories (copied to clipboard)`, 'success');
+      } else {
+        notifyUser(`Recalled ${result.count} memories!`, 'success');
+      }
+    });
+  } catch (e) {
+    console.error('Quick recall error:', e);
+    notifyUser('Recall failed: ' + e.message, 'error');
+  }
+}
+
+// Handle quick capture
+async function handleQuickCapture(tab, platform) {
+  if (!platform) {
+    notifyUser('Open an AI chat to capture', 'info');
+    return;
+  }
+  
+  try {
+    await performCapture(tab.id, tab.url, platform, false);
+    notifyUser(`Captured from ${platform}!`, 'success');
+  } catch (e) {
+    console.error('Quick capture error:', e);
+    notifyUser('Capture failed', 'error');
+  }
+}
+
+// Handle quick inject (legacy project context)
+async function handleQuickInject(tab) {
+  const storage = await chrome.storage.local.get(['projects', 'activeProjectId']);
+  const projects = storage.projects || [];
+  const activeProjectId = storage.activeProjectId;
+  
+  if (!activeProjectId || projects.length === 0) {
+    notifyUser('No active project. Open the extension to create one.', 'info');
+    return;
+  }
+  
+  const project = projects.find(p => p.id === activeProjectId);
+  if (!project) {
+    notifyUser('Active project not found', 'error');
+    return;
+  }
+  
+  // Generate context prompt
+  const prompt = generateProjectPrompt(project);
+  
+  // Send to content script
+  chrome.tabs.sendMessage(tab.id, {
+    type: 'INJECT_CONTEXT',
+    context: prompt
+  }, (response) => {
+    if (chrome.runtime.lastError || !response?.success) {
+      copyToClipboard(prompt);
+      notifyUser('Context copied to clipboard', 'success');
+    } else {
+      notifyUser('Context injected!', 'success');
+    }
+  });
+}
+
+// Generate project context prompt
+function generateProjectPrompt(project) {
+  const sections = ['You are continuing an existing project.', '', 'Context:'];
+  if (project.goal) sections.push(`- Goal: ${project.goal}`);
+  if (project.current_progress) sections.push(`- Current Progress: ${project.current_progress}`);
+  if (project.constraints) sections.push(`- Constraints: ${project.constraints}`);
+  if (project.tech_stack) sections.push(`- Tech Stack: ${project.tech_stack}`);
+  if (project.notes) sections.push(`- Notes: ${project.notes}`);
+  sections.push('', 'Do not ask onboarding questions.', 'Continue from this context.');
+  return sections.join('\n');
+}
+
+// Copy text to clipboard (background script compatible)
+async function copyToClipboard(text) {
+  try {
+    // Use offscreen document for clipboard access in MV3
+    await chrome.offscreen?.createDocument?.({
+      url: 'offscreen.html',
+      reasons: ['CLIPBOARD'],
+      justification: 'Copy text to clipboard'
+    }).catch(() => {});
+    
+    // Fallback: write to storage for popup to pick up
+    await chrome.storage.local.set({ pendingClipboard: text });
+  } catch (e) {
+    console.error('Clipboard copy failed:', e);
+  }
+}
+
+// Show notification to user
+function notifyUser(message, type = 'info') {
+  console.log(`AI Context Bridge [${type}]: ${message}`);
+  
+  // Update badge temporarily to show feedback
+  const badgeColors = {
+    success: '#22c55e',
+    error: '#ef4444',
+    warning: '#f59e0b',
+    info: '#6366f1'
+  };
+  
+  chrome.action.setBadgeBackgroundColor({ color: badgeColors[type] || '#6366f1' });
+  chrome.action.setBadgeText({ text: type === 'success' ? '✓' : type === 'error' ? '!' : '•' });
+  
+  // Reset badge after 2 seconds
+  setTimeout(() => {
+    updateBadge();
+  }, 2000);
+}
+
 // ===== V2 SESSION HELPER =====
 // Try to read the Supabase auth session from the web app cookie/localStorage via an injected script
 async function fetchWebSession() {

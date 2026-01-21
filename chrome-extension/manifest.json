@@ -57,5 +57,28 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "commands": {
+    "quick-recall": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+R",
+        "mac": "Command+Shift+R"
+      },
+      "description": "Quick recall - inject context into current chat"
+    },
+    "quick-capture": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+C",
+        "mac": "Command+Shift+C"
+      },
+      "description": "Quick capture - save current conversation"
+    },
+    "quick-inject": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+I",
+        "mac": "Command+Shift+I"
+      },
+      "description": "Quick inject - inject active project context"
+    }
   }
 }

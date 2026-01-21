@@ -1130,6 +1130,96 @@ main {
   color: #a78bfa;
 }
 
+/* ===== KEYBOARD SHORTCUTS ===== */
+.shortcuts-hint {
+  position: fixed;
+  bottom: 70px;
+  right: var(--spacing-md);
+  z-index: 100;
+}
+
+.shortcuts-toggle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.shortcuts-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.shortcuts-panel {
+  position: absolute;
+  bottom: 36px;
+  right: 0;
+  width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-sm);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.shortcuts-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding-bottom: var(--spacing-xs);
+  margin-bottom: var(--spacing-xs);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.shortcut-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-xs) 0;
+}
+
+.shortcut-keys {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.shortcut-keys kbd {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-family: inherit;
+  font-size: 9px;
+  color: var(--text-secondary);
+}
+
+.shortcut-desc {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.shortcuts-note {
+  font-size: 9px;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+  border-top: 1px solid var(--border-color);
+}
+
 /* ===== UTILITIES ===== */
 .hidden {
   display: none !important;
