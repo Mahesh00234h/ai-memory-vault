@@ -81,7 +81,7 @@ async function analyzeToMemoryJson(params: {
     : params.rawText;
 
   const systemPrompt =
-    "You are a precise extraction engine. Return ONLY valid JSON. Be concise but high-signal.";
+    "You are a precise extraction engine. Return ONLY valid JSON. Produce detailed, AI-friendly project memory (high-signal, not generic).";
 
   const userPrompt = `Platform: ${params.platform || "Unknown"}
 URL: ${params.url || "Unknown"}
@@ -92,13 +92,18 @@ ${truncated}
 
 Return a JSON object EXACTLY matching this schema:
 {
-  "title": "string (<= 80 chars)",
+  "title": "string (<= 80 chars, specific)",
   "topic": "string or null",
-  "summary": "string (2-5 sentences)",
-  "key_points": ["string"],
-  "decisions": ["string"],
-  "open_questions": ["string"]
-}`;
+  "summary": "string (4-8 sentences, detailed and concrete: what was attempted, what worked, constraints, next step)",
+  "key_points": ["string (dense, technical when relevant)"] ,
+  "decisions": ["string (explicit decisions, chosen options, tradeoffs)"],
+  "open_questions": ["string (actionable questions / unknowns)"]
+}
+
+Guidelines:
+- Avoid generic filler. Prefer exact nouns/verbs from the conversation.
+- If there are steps, include them in key_points.
+- If there's code/architecture, mention components, flows, and edge cases.`;
 
   const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
