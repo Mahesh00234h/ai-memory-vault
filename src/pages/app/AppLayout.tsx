@@ -1,6 +1,7 @@
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { TeamNotifications } from "@/components/TeamNotifications";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -25,7 +26,10 @@ export function AppLayout() {
               Projects
             </Link>
           </div>
-          <Button variant="outline" onClick={signOut}>Sign out</Button>
+          <div className="flex items-center gap-2">
+            <TeamNotifications />
+            <Button variant="outline" onClick={signOut}>Sign out</Button>
+          </div>
         </div>
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">
