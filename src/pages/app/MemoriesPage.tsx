@@ -21,7 +21,11 @@ import {
   History,
   Database,
   Clock,
-  AlertCircle
+  AlertCircle,
+  MessageSquare,
+  FileJson,
+  FileCode,
+  Quote
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -35,10 +39,44 @@ interface Memory {
   open_questions: string[];
   source_platform: string | null;
   source_url: string | null;
+  source_page_title?: string | null;
+  source_thread_key?: string | null;
+  message_count?: number | null;
+  raw_text?: string | null;
   created_at: string;
   project_id: string | null;
   memory_version: number;
   source_captured_at: string | null;
+  relevance_score?: number;
+}
+
+interface PromptPack {
+  schema: string;
+  generatedAt: string;
+  query: string;
+  projectId: string | null;
+  count: number;
+  instructions: string[];
+  memories: Array<{
+    id: string;
+    title: string;
+    topic: string | null;
+    date: string;
+    source: {
+      platform: string | null;
+      url: string | null;
+      pageTitle: string | null;
+      threadKey: string | null;
+      capturedAt: string | null;
+      messageCount: number | null;
+    };
+    summary: string | null;
+    key_points: string[];
+    decisions: string[];
+    open_questions: string[];
+    excerpts: string[];
+    relevance_score?: number;
+  }>;
 }
 
 interface RecallResponse {
@@ -47,6 +85,58 @@ interface RecallResponse {
   memories: Memory[];
   promptBlock: string;
   error?: string;
+}
+
+// Helper: extract excerpts from raw text based on query keywords
+function extractExcerpts(rawText: string, query: string, maxExcerpts = 3): string[] {
+  if (!rawText || !query) return [];
+  
+  const keywords = query.toLowerCase().split(/\s+/).filter(kw => kw.length >= 2).slice(0, 8);
+  const lines = rawText.split("\n").map(l => l.trim()).filter(Boolean);
+  
+  if (!keywords.length) {
+    return lines.slice(0, maxExcerpts).map(l => l.slice(0, 200));
+  }
+  
+  const hits: string[] = [];
+  const seen = new Set<string>();
+  
+  for (const line of lines) {
+    const lower = line.toLowerCase();
+    const matched = keywords.some(kw => lower.includes(kw));
+    if (!matched) continue;
+    const clipped = line.length > 200 ? line.slice(0, 199) + "…" : line;
+    if (!seen.has(clipped)) {
+      hits.push(clipped);
+      seen.add(clipped);
+    }
+    if (hits.length >= maxExcerpts) break;
+  }
+  
+  return hits;
+}
+
+// ExcerptSection component for displaying relevant chat excerpts
+function ExcerptSection({ rawText, query }: { rawText: string; query: string }) {
+  const excerpts = extractExcerpts(rawText, query, 3);
+  
+  if (!excerpts.length) return null;
+  
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/50">
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <Quote className="h-4 w-4" />
+        Relevant Excerpts
+      </div>
+      <div className="space-y-1.5">
+        {excerpts.map((excerpt, i) => (
+          <p key={i} className="text-xs text-muted-foreground/80 italic bg-muted/30 rounded px-2 py-1.5 leading-relaxed">
+            "{excerpt}"
+          </p>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 interface MigrationResponse {
@@ -205,15 +295,40 @@ export function MemoriesPage() {
     },
   });
 
-  const copyPromptBlock = async () => {
+  // Extract JSON and Markdown blocks from hybrid promptBlock
+  const parseHybridBlocks = (promptBlock: string): { json: string; markdown: string } => {
+    const jsonMatch = promptBlock.match(/```json\n([\s\S]*?)```/);
+    const jsonBlock = jsonMatch ? jsonMatch[1].trim() : "";
+    
+    // Extract markdown section (everything after "## Markdown (for direct injection)")
+    const mdMatch = promptBlock.match(/## Markdown \(for direct injection\)\n\n([\s\S]*?)(?=\n## Recommended next step|$)/);
+    const markdownBlock = mdMatch ? mdMatch[1].trim() : "";
+    
+    return { json: jsonBlock, markdown: markdownBlock };
+  };
+
+  const copyPromptBlock = async (format: "full" | "json" | "markdown" = "full") => {
     if (!data?.promptBlock) return;
     
     try {
-      await navigator.clipboard.writeText(data.promptBlock);
-      setCopiedId("all");
+      let textToCopy = data.promptBlock;
+      let description = "Full hybrid block copied";
+      
+      if (format === "json") {
+        const { json } = parseHybridBlocks(data.promptBlock);
+        textToCopy = json;
+        description = "JSON context pack copied";
+      } else if (format === "markdown") {
+        const { markdown } = parseHybridBlocks(data.promptBlock);
+        textToCopy = markdown;
+        description = "Markdown block copied";
+      }
+      
+      await navigator.clipboard.writeText(textToCopy);
+      setCopiedId(`all-${format}`);
       toast({
         title: "Copied!",
-        description: "Prompt block copied to clipboard",
+        description,
       });
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
@@ -320,18 +435,50 @@ export function MemoriesPage() {
             Migrate V1
           </Button>
           {data?.count ? (
-            <Button
-              variant="outline"
-              onClick={copyPromptBlock}
-              className="gap-2"
-            >
-              {copiedId === "all" ? (
-                <Check className="h-4 w-4" />
-              ) : (
-                <Copy className="h-4 w-4" />
-              )}
-              Copy All as Prompt
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyPromptBlock("json")}
+                className="gap-1.5"
+                title="Copy JSON context pack for tools/agents"
+              >
+                {copiedId === "all-json" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <FileJson className="h-4 w-4" />
+                )}
+                JSON
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyPromptBlock("markdown")}
+                className="gap-1.5"
+                title="Copy Markdown for direct injection"
+              >
+                {copiedId === "all-markdown" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <FileCode className="h-4 w-4" />
+                )}
+                Markdown
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyPromptBlock("full")}
+                className="gap-1.5"
+                title="Copy full hybrid block (JSON + Markdown)"
+              >
+                {copiedId === "all-full" ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
+                Full
+              </Button>
+            </div>
           ) : null}
         </div>
       </div>
@@ -554,6 +701,17 @@ export function MemoriesPage() {
                           {memory.topic}
                         </Badge>
                       )}
+                      {typeof memory.message_count === "number" && memory.message_count > 0 && (
+                        <span className="flex items-center gap-1 text-xs">
+                          <MessageSquare className="h-3 w-3" />
+                          {memory.message_count} msgs
+                        </span>
+                      )}
+                      {typeof memory.relevance_score === "number" && memory.relevance_score > 0 && (
+                        <Badge variant="outline" className="text-xs bg-primary/5 text-primary border-primary/20">
+                          Score: {memory.relevance_score}
+                        </Badge>
+                      )}
                       <span className="flex items-center gap-1">
                         <Calendar className="h-3 w-3" />
                         {formatDate(memory.created_at)}
@@ -654,6 +812,13 @@ export function MemoriesPage() {
                   </div>
                 )}
 
+                {/* Source Page Title */}
+                {memory.source_page_title && (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium">Page:</span> {memory.source_page_title}
+                  </p>
+                )}
+
                 {/* Source URL */}
                 {memory.source_url && (
                   <a
@@ -664,6 +829,11 @@ export function MemoriesPage() {
                   >
                     {memory.source_url}
                   </a>
+                )}
+
+                {/* Excerpts (shown when raw_text is available and has content) */}
+                {memory.raw_text && debouncedQuery && (
+                  <ExcerptSection rawText={memory.raw_text} query={debouncedQuery} />
                 )}
               </CardContent>
             </Card>
