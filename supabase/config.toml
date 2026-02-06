@@ -14,3 +14,9 @@ verify_jwt = false
 
 [functions.migrate-user-data]
 verify_jwt = false
+
+[functions.merge-team-context]
+verify_jwt = false
+
+[functions.recall-team-memory]
+verify_jwt = false
