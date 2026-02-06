@@ -791,33 +791,43 @@ async function performCapture(tabId, url, platform, isUpdate) {
 async function analyzeWithAI(rawContent, platform, pageTitle) {
   try {
     console.log('AI Context Bridge: Analyzing with AI...');
-    const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-context`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SUPABASE_ANON_KEY,
-        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
-      },
-      body: JSON.stringify({ rawContent, platform, pageTitle })
-    });
     
-    if (response.ok) {
-      const result = await response.json();
-      if (result.success && result.analysis) {
-        console.log('AI Context Bridge: AI analysis complete', result.analysis.title);
-        return {
-          ...result.analysis,
-          messageCount: rawContent.split('---').length
-        };
+    // Try to get V2 session token for authenticated analysis (produces rich context)
+    const v2Token = cachedWebSession || (await fetchWebSession());
+    
+    if (v2Token) {
+      // Use authenticated endpoint for rich AI analysis
+      const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-context`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${v2Token}`
+        },
+        body: JSON.stringify({ rawContent, platform, pageTitle })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.analysis) {
+          console.log('AI Context Bridge: Rich AI analysis complete', result.analysis.title);
+          return {
+            ...result.analysis,
+            messageCount: rawContent.split('---').length
+          };
+        }
+      } else {
+        console.warn('AI Context Bridge: AI analysis failed, status:', response.status);
+        const errorText = await response.text();
+        console.warn('AI Context Bridge: Error details:', errorText);
       }
     } else {
-      console.warn('AI Context Bridge: AI analysis failed, status:', response.status);
+      console.log('AI Context Bridge: No V2 session, using local analysis');
     }
   } catch (e) {
     console.error('AI Context Bridge: AI analysis error:', e);
   }
   
-  // Fallback to local analysis if AI fails
+  // Fallback to local analysis if AI fails or no session
   console.log('AI Context Bridge: Falling back to local analysis');
   return generateDetailedContext(rawContent, platform, pageTitle);
 }
