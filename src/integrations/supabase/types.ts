@@ -183,7 +183,15 @@ export type Database = {
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "memories_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
@@ -283,11 +291,16 @@ export type Database = {
           decisions: Json | null
           id: string
           key_points: Json | null
+          last_merge_at: string | null
+          member_attributions: Json | null
+          memory_ids: Json | null
+          merge_version: number | null
           open_questions: Json | null
           summary: string
           team_id: string
           tech_stack: Json | null
           title: string
+          topic_cluster: string | null
           updated_at: string
         }
         Insert: {
@@ -297,11 +310,16 @@ export type Database = {
           decisions?: Json | null
           id?: string
           key_points?: Json | null
+          last_merge_at?: string | null
+          member_attributions?: Json | null
+          memory_ids?: Json | null
+          merge_version?: number | null
           open_questions?: Json | null
           summary: string
           team_id: string
           tech_stack?: Json | null
           title: string
+          topic_cluster?: string | null
           updated_at?: string
         }
         Update: {
@@ -311,11 +329,16 @@ export type Database = {
           decisions?: Json | null
           id?: string
           key_points?: Json | null
+          last_merge_at?: string | null
+          member_attributions?: Json | null
+          memory_ids?: Json | null
+          merge_version?: number | null
           open_questions?: Json | null
           summary?: string
           team_id?: string
           tech_stack?: Json | null
           title?: string
+          topic_cluster?: string | null
           updated_at?: string
         }
         Relationships: [
