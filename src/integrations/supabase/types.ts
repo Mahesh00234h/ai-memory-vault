@@ -399,6 +399,10 @@ export type Database = {
         Args: { check_team_id: string; check_user_id: string }
         Returns: boolean
       }
+      is_team_member_via_memories: {
+        Args: { check_team_id: string; check_user_id: string }
+        Returns: boolean
+      }
       user_exists: { Args: { check_user_id: string }; Returns: boolean }
     }
     Enums: {
