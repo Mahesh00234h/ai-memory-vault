@@ -878,6 +878,31 @@ async function saveLocalContext(ctx) {
   updateBadge();
 }
 
+// Fetch with exponential backoff retry
+async function fetchWithRetry(url, options, maxRetries = 3) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok || response.status < 500) return response; // Don't retry client errors
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 10000);
+        console.log(`AI Context Bridge: Retry ${attempt + 1}/${maxRetries} in ${Math.round(delay)}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        return response; // Return last failed response
+      }
+    } catch (e) {
+      if (attempt < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 10000);
+        console.log(`AI Context Bridge: Fetch failed, retry ${attempt + 1}/${maxRetries} in ${Math.round(delay)}ms`);
+        await new Promise(r => setTimeout(r, delay));
+      } else {
+        throw e; // Re-throw after all retries exhausted
+      }
+    }
+  }
+}
+
 // Save raw content to cloud (with offline queue support)
 async function saveRawToCloud(ctx, rawContent) {
   const storage = await chrome.storage.local.get(['userId']);
@@ -899,14 +924,13 @@ async function saveRawToCloud(ctx, rawContent) {
   };
   
   if (!isOnline) {
-    // Queue for later
     await addToSyncQueue({ type: 'create', localId: ctx.id, data });
     console.log('AI Context Bridge: Queued create for offline sync');
     return;
   }
   
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/captured_contexts`, {
+    const response = await fetchWithRetry(`${SUPABASE_URL}/rest/v1/captured_contexts`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -929,10 +953,10 @@ async function saveRawToCloud(ctx, rawContent) {
         }
       }
     } else {
-      throw new Error('Save failed');
+      throw new Error(`Save failed: ${response.status}`);
     }
   } catch (e) {
-    console.error('Failed to save raw content to cloud, queuing:', e);
+    console.error('Failed to save raw content to cloud after retries, queuing:', e);
     await addToSyncQueue({ type: 'create', localId: ctx.id, data });
   }
 }
