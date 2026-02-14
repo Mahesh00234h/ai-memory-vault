@@ -1,73 +1,99 @@
-# Welcome to your Lovable project
+# AI Context Bridge
 
-## Project info
+AI Context Bridge is a powerful tool designed to streamline your workflow with AI chat platforms. It allows you to capture, store, and inject project context across multiple services, ensuring you never have to re-explain your project again. It consists of a Chrome Extension for seamless interaction and a Web Dashboard for managing your captured memories.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Key Features
 
-## How can I edit this code?
+### Chrome Extension
+- **Context Bridging:** Seamlessly move context between supported AI platforms.
+- **Smart Capture:** Save conversations with detailed breakdowns including summaries, key points, decisions, and open questions.
+- **Quick Recall (`Ctrl+Shift+R` / `Cmd+Shift+R`):** Instantly inject relevant project context into your current chat session.
+- **Quick Capture (`Ctrl+Shift+C` / `Cmd+Shift+C`):** Save the current conversation as a memory.
+- **Quick Inject (`Ctrl+Shift+I` / `Cmd+Shift+I`):** Inject active project context directly into your chat.
 
-There are several ways of editing your application.
+### Web Dashboard
+- **Project Management:** Organize your memories into projects to scope context ingestion and recall.
+- **Memory Management:** Browse your captured memories, search by keywords, filter by source, and view detailed insights.
+- **Flexible Export:** Copy context packs in JSON or Markdown formats for use in other tools or agents.
+- **Legacy Migration:** Easily migrate memories from V1 to the new V2 native format.
+- **Detailed Insights:** View summaries, key points, decisions, and open questions extracted from your conversations.
 
-**Use Lovable**
+## Supported Platforms
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+The extension supports bridging context across the following AI platforms:
+- **OpenAI:** ChatGPT (`chat.openai.com`, `chatgpt.com`)
+- **Anthropic:** Claude (`claude.ai`)
+- **Google:** Gemini (`gemini.google.com`)
+- **Microsoft:** Copilot (`copilot.microsoft.com`)
+- **Quora:** Poe (`poe.com`)
+- **Perplexity:** Perplexity AI (`perplexity.ai`)
 
-Changes made via Lovable will be committed automatically to this repo.
+## Installation
 
-**Use your preferred IDE**
+### Prerequisites
+- Node.js & npm installed (use `nvm` for version management)
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Steps
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+1.  **Clone the Repository:**
+    ```bash
+    git clone <repository-url>
+    cd <project-directory>
+    ```
 
-Follow these steps:
+2.  **Install Dependencies:**
+    ```bash
+    npm install
+    ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+3.  **Run Development Server:**
+    ```bash
+    npm run dev
+    ```
+    This will start the web dashboard locally.
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+4.  **Load Chrome Extension:**
+    1.  Open Chrome and navigate to `chrome://extensions/`.
+    2.  Enable "Developer mode" in the top right corner.
+    3.  Click "Load unpacked".
+    4.  Select the `chrome-extension` directory from the project folder.
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Usage
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+### Using the Chrome Extension
+Once installed, the extension icon will appear in your browser toolbar. Pin it for easy access.
+- Navigate to any supported AI chat platform.
+- Use the keyboard shortcuts or click the extension icon to access Quick Recall, Capture, and Inject features.
 
-**Edit a file directly in GitHub**
+### Using the Web Dashboard
+- Access the dashboard (typically `http://localhost:8080` during development or the deployed URL).
+- **Create a Project:** Navigate to the Projects page to create a new project. Projects help you organize memories.
+- **View Memories:** Go to the Memories page to see all captured contexts. Use the search bar to find specific topics or keywords.
+- **Copy Context:** Use the "Copy" buttons to copy memory details or full context packs (JSON/Markdown) to your clipboard.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Technologies
 
-**Use GitHub Codespaces**
+This project is built with a modern tech stack:
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+- **Frontend:**
+    - [Vite](https://vitejs.dev/) - Next Generation Frontend Tooling
+    - [React](https://react.dev/) - The library for web and native user interfaces
+    - [TypeScript](https://www.typescriptlang.org/) - Typed JavaScript at Any Scale
+    - [Tailwind CSS](https://tailwindcss.com/) - Rapidly build modern websites without ever leaving your HTML
+    - [shadcn-ui](https://ui.shadcn.com/) - Beautifully designed components built with Radix UI and Tailwind CSS
 
-## What technologies are used for this project?
+- **Backend:**
+    - [Supabase](https://supabase.com/) - Open Source Firebase Alternative (Database, Auth, Edge Functions)
 
-This project is built with:
+- **Extension:**
+    - Chrome Extension Manifest V3
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Contributing
 
-## How can I deploy this project?
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+1.  Fork the project
+2.  Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4.  Push to the branch (`git push origin feature/AmazingFeature`)
+5.  Open a Pull Request
