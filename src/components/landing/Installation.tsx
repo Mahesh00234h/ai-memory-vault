@@ -1,12 +1,32 @@
 import { Button } from "@/components/ui/button";
-import { Check, Copy, ExternalLink, FolderOpen, Puzzle, Settings } from "lucide-react";
+import { Check, Copy, Download, ExternalLink, FolderOpen, Loader2, Puzzle, Settings } from "lucide-react";
 import { useState } from "react";
+import JSZip from "jszip";
+
+const EXTENSION_FILES = [
+  "manifest.json",
+  "background.js",
+  "content.js",
+  "popup.html",
+  "popup.css",
+  "popup.js",
+  "api.js",
+  "icons/icon16.png",
+  "icons/icon32.png",
+  "icons/icon48.png",
+  "icons/icon128.png",
+];
 
 const installSteps = [
   {
+    icon: Download,
+    title: "Download Extension",
+    description: "Click the button below to download the extension as a ZIP file.",
+  },
+  {
     icon: FolderOpen,
-    title: "Download Extension Files",
-    description: "Click the button below to download the extension folder, or clone from the repository.",
+    title: "Unzip the File",
+    description: "Extract the downloaded ZIP file to a folder on your computer.",
   },
   {
     icon: Settings,
@@ -22,17 +42,49 @@ const installSteps = [
   {
     icon: Check,
     title: "Load Unpacked",
-    description: "Click 'Load unpacked' and select the chrome-extension folder you downloaded.",
+    description: "Click 'Load unpacked' and select the extracted folder.",
   },
 ];
 
 export function Installation() {
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadExtension = async () => {
+    setDownloading(true);
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder("ai-context-bridge");
+
+      await Promise.all(
+        EXTENSION_FILES.map(async (filePath) => {
+          const response = await fetch(`/dl/chrome-extension/${filePath}`);
+          if (!response.ok) throw new Error(`Failed to fetch ${filePath}`);
+          const blob = await response.blob();
+          folder!.file(filePath, blob);
+        })
+      );
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ai-context-bridge-extension.zip";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Download failed:", e);
+    } finally {
+      setDownloading(false);
+    }
   };
 
   return (
@@ -100,10 +152,15 @@ export function Installation() {
               <Button
                 size="lg"
                 className="bg-primary hover:bg-primary/90 gap-2 glow-effect"
-                onClick={() => window.open("/chrome-extension", "_blank")}
+                onClick={downloadExtension}
+                disabled={downloading}
               >
-                <FolderOpen className="w-5 h-5" />
-                View Extension Files
+                {downloading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Download className="w-5 h-5" />
+                )}
+                {downloading ? "Preparing Download..." : "Download Extension"}
               </Button>
               <Button
                 size="lg"
