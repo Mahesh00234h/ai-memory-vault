@@ -715,7 +715,6 @@ SOFTWARE.
 
 - [shadcn-ui](https://ui.shadcn.com/) for beautiful component primitives
 - [Supabase](https://supabase.com/) for the amazing backend platform
-- [Lovable](https://lovable.dev/) for rapid prototyping tools
 - The open-source community for inspiration and tools
 
 ---
