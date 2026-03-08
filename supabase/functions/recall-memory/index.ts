@@ -327,7 +327,7 @@ serve(async (req) => {
     // Build the query
     let dbQuery = supabase
       .from("memories")
-      .select("id, title, topic, summary, key_points, decisions, open_questions, source_platform, source_url, source_page_title, source_thread_key, message_count, raw_text, created_at, memory_version, source_captured_at, project_id")
+      .select("id, title, topic, summary, key_points, decisions, open_questions, source_platform, source_url, source_page_title, source_thread_key, message_count, raw_text, captured_by_name, created_at, memory_version, source_captured_at, project_id")
       .eq("user_id", userData.user.id)
       .gte("created_at", new Date(Date.now() - recencyDays * 24 * 60 * 60 * 1000).toISOString())
       .order("created_at", { ascending: false })
