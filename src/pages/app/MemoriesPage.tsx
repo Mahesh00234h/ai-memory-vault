@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -13,7 +15,7 @@ import {
   Search, Calendar, FileText, Lightbulb, CheckCircle, HelpCircle, 
   Copy, Check, RefreshCw, ArrowRightLeft, History, Database, Clock, 
   AlertCircle, MessageSquare, FileJson, FileCode, Quote, Bot, Send, 
-  X, Download, Share2, User
+  X, Download, Share2, User, Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -180,6 +182,7 @@ export function MemoriesPage() {
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [viewingMemory, setViewingMemory] = useState<Memory | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -608,6 +611,11 @@ export function MemoriesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {memory.raw_text && (
+                      <Button variant="ghost" size="sm" onClick={() => setViewingMemory(memory)} title="View full chat">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => shareMemory(memory)} title="Share">
                       {copiedId === `share-${memory.id}` ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
                     </Button>
@@ -658,6 +666,52 @@ export function MemoriesPage() {
           ))}
         </div>
       )}
+
+      {/* View Full Chat Dialog */}
+      <Dialog open={!!viewingMemory} onOpenChange={(open) => !open && setViewingMemory(null)}>
+        <DialogContent className="max-w-3xl max-h-[85vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              {viewingMemory?.title}
+            </DialogTitle>
+            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground pt-1">
+              {viewingMemory?.captured_by_name && (
+                <span className="flex items-center gap-1 text-xs font-medium">
+                  <User className="h-3 w-3" /> {viewingMemory.captured_by_name}
+                </span>
+              )}
+              {viewingMemory?.source_platform && <Badge variant="secondary" className="text-xs">{viewingMemory.source_platform}</Badge>}
+              {viewingMemory?.created_at && <span className="text-xs">{formatDate(viewingMemory.created_at)}</span>}
+              {typeof viewingMemory?.message_count === "number" && viewingMemory.message_count > 0 && (
+                <span className="text-xs">{viewingMemory.message_count} messages</span>
+              )}
+            </div>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] mt-2">
+            <div className="space-y-0 font-mono text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground/90 bg-muted/30 rounded-lg p-4">
+              {viewingMemory?.raw_text || "No raw chat text available for this memory."}
+            </div>
+          </ScrollArea>
+          <div className="flex justify-end gap-2 pt-2">
+            {viewingMemory?.source_url && (
+              <Button variant="outline" size="sm" asChild>
+                <a href={viewingMemory.source_url} target="_blank" rel="noopener noreferrer" className="gap-2">
+                  Open original link
+                </a>
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={async () => {
+              if (viewingMemory?.raw_text) {
+                await navigator.clipboard.writeText(viewingMemory.raw_text);
+                toast({ title: "Copied!", description: "Full chat text copied to clipboard" });
+              }
+            }} className="gap-2">
+              <Copy className="h-4 w-4" /> Copy text
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
