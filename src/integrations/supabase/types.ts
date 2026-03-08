@@ -115,6 +115,7 @@ export type Database = {
       }
       memories: {
         Row: {
+          captured_by_name: string | null
           content_hash: string | null
           created_at: string
           decisions: Json | null
@@ -138,6 +139,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          captured_by_name?: string | null
           content_hash?: string | null
           created_at?: string
           decisions?: Json | null
@@ -161,6 +163,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          captured_by_name?: string | null
           content_hash?: string | null
           created_at?: string
           decisions?: Json | null

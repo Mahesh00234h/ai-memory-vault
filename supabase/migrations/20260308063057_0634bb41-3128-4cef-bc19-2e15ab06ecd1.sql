@@ -1,0 +1,1 @@
+ALTER TABLE public.memories ADD COLUMN captured_by_name text DEFAULT null;
