@@ -15,7 +15,7 @@ import {
   Search, Calendar, FileText, Lightbulb, CheckCircle, HelpCircle, 
   Copy, Check, RefreshCw, ArrowRightLeft, History, Database, Clock, 
   AlertCircle, MessageSquare, FileJson, FileCode, Quote, Bot, Send, 
-  X, Download, Share2, User
+  X, Download, Share2, User, Eye
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
