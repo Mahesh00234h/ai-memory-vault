@@ -291,10 +291,20 @@ serve(async (req) => {
       pageTitle: sanitizedSource.pageTitle,
     });
 
+    // Fetch user's display name for captured_by_name
+    let capturedByName: string | null = null;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", userData.user.id)
+      .maybeSingle();
+    capturedByName = profile?.display_name || userData.user.email || null;
+
     const insertPayload = {
       user_id: userData.user.id,
       team_id: body.teamId ?? null,
       project_id: body.projectId ?? null,
+      captured_by_name: capturedByName,
 
       source_platform: sanitizedSource.platform,
       source_url: sanitizedSource.url,
