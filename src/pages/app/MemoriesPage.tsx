@@ -611,6 +611,11 @@ export function MemoriesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {memory.raw_text && (
+                      <Button variant="ghost" size="sm" onClick={() => setViewingMemory(memory)} title="View full chat">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => shareMemory(memory)} title="Share">
                       {copiedId === `share-${memory.id}` ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
                     </Button>
