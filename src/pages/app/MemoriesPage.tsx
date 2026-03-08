@@ -182,6 +182,7 @@ export function MemoriesPage() {
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [viewingMemory, setViewingMemory] = useState<Memory | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
