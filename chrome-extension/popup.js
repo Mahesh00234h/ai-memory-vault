@@ -2031,16 +2031,42 @@ async function copyToClipboard(text) {
   }
 }
 
-function showToast(message, type = '') {
-  elements.toast.textContent = message;
-  elements.toast.className = 'toast show';
-  if (type) {
-    elements.toast.classList.add(type);
+function showToast(message, type = '', options = {}) {
+  const { actionLabel = null, onAction = null, duration } = options;
+  const el = elements.toast;
+
+  // Reset content
+  el.innerHTML = '';
+  el.className = 'toast show';
+  if (type) el.classList.add(type);
+
+  const msgSpan = document.createElement('span');
+  msgSpan.className = 'toast-message';
+  msgSpan.textContent = message;
+  el.appendChild(msgSpan);
+
+  // Clear any previous timer
+  if (showToast._timer) {
+    clearTimeout(showToast._timer);
+    showToast._timer = null;
   }
-  
-  setTimeout(() => {
-    elements.toast.classList.remove('show');
-  }, 2500);
+
+  if (actionLabel && typeof onAction === 'function') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', () => {
+      el.classList.remove('show');
+      try { onAction(); } catch (e) { console.error('toast action failed', e); }
+    });
+    el.appendChild(btn);
+  }
+
+  const ms = duration ?? (actionLabel ? 6000 : 2500);
+  showToast._timer = setTimeout(() => {
+    el.classList.remove('show');
+  }, ms);
 }
 
 function escapeHtml(text) {
