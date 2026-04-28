@@ -1045,6 +1045,8 @@ async function handleMergeTeamKnowledge(isRetry = false) {
     if (elements.mergeTeamBtn) elements.mergeTeamBtn.disabled = false;
   }
 }
+
+async function handleShareToTeam() {
   if (!currentTeam || !selectedContextId) {
     showToast('Join a team first', 'error');
     return;
