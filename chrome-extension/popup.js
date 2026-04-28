@@ -1787,6 +1787,53 @@ async function injectOrCopy(prompt) {
   }
 }
 
+async function handleExportLastRaw() {
+  try {
+    if (!capturedContexts || capturedContexts.length === 0) {
+      showToast('No captured chats yet', 'error');
+      return;
+    }
+    const sorted = [...capturedContexts].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    const last = sorted.find(c => c.rawContent && c.rawContent.trim().length > 0) || sorted[0];
+    const raw = last.rawContent || last.content || '';
+    if (!raw.trim()) {
+      showToast('Last capture has no raw text (stored in cloud only)', 'error');
+      return;
+    }
+
+    const platform = last.platform || 'unknown';
+    const title = (last.title || 'chat').replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60);
+    const ts = new Date(last.timestamp || Date.now()).toISOString().replace(/[:.]/g, '-');
+    const header = `# ${last.title || 'Captured Chat'}\nPlatform: ${platform}\nURL: ${last.url || ''}\nCaptured: ${new Date(last.timestamp || Date.now()).toISOString()}\nMessages: ${last.messageCount || 'n/a'}\n\n---\n\n`;
+    const fileText = header + raw;
+
+    // Copy to clipboard
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(fileText);
+      copied = true;
+    } catch (e) {
+      console.warn('Clipboard write failed:', e);
+    }
+
+    // Trigger download as .txt
+    const blob = new Blob([fileText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${platform}_${title}_${ts}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    showToast(copied ? 'Exported & copied to clipboard' : 'Exported (clipboard blocked)', 'success');
+  } catch (e) {
+    console.error('Export last raw failed:', e);
+    showToast('Export failed: ' + e.message, 'error');
+  }
+}
+
 async function handleManualCapture() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
