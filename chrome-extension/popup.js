@@ -1469,6 +1469,9 @@ function setupEventListeners() {
   
   // Refresh/Manual capture button
   elements.refreshCaptureBtn?.addEventListener('click', handleManualCapture);
+
+  // Export last raw chat button
+  elements.exportLastRawBtn?.addEventListener('click', handleExportLastRaw);
   
   // Sync button
   elements.syncStatusBtn?.addEventListener('click', syncWithCloud);
