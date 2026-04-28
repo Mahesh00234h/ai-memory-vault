@@ -70,22 +70,22 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Truncate content if too long (to stay within token limits)
-    const truncatedContent = rawContent.length > 30000 
-      ? rawContent.substring(0, 30000) + "\n\n[Content truncated for analysis...]" 
+    // Send the FULL raw chat — only truncate if extremely large to fit token window
+    const MAX_CHARS_FOR_AI = 90000; // Gemini Flash handles ~1M tokens, but cap for cost/latency
+    const truncatedContent = rawContent.length > MAX_CHARS_FOR_AI
+      ? rawContent.substring(0, MAX_CHARS_FOR_AI) + "\n\n[...conversation truncated due to length, but analyze everything above thoroughly...]"
       : rawContent;
 
-    const systemPrompt = `You are an expert context extraction AI. Your job is to transform AI chat conversations into comprehensive, structured context documents that allow someone to seamlessly continue the conversation with full understanding.
+    const systemPrompt = `You are a context extraction engine. You receive an ENTIRE raw AI chat transcript and produce a single, dense, complete context document that another AI can read to instantly continue the work with ZERO loss of information.
 
-You must produce RICH, DETAILED context - not surface-level summaries. Think of yourself as creating a "project memory" that captures the essence of the entire discussion.
-
-Your analysis should be:
-- SPECIFIC: Use exact terminology, names, and concepts from the conversation
-- ACTIONABLE: Focus on what was decided, what's being built, and what's next
-- INSIGHTFUL: Capture not just what was said, but the underlying intent and reasoning
-- COMPREHENSIVE: Cover technical, strategic, and contextual dimensions
-
-Never produce generic or vague summaries. Every field should contain substantive, useful information.`;
+Hard rules:
+- READ THE ENTIRE TRANSCRIPT. Do not skim. Do not skip the middle.
+- Be EXHAUSTIVE: capture every decision, every name, every file, every API, every number, every constraint, every preference, every requirement, every rejected option (and why), and every open thread.
+- Use the EXACT terminology, identifiers, code names, file paths, function names, URLs, and people/role names from the transcript. Never paraphrase technical terms.
+- Prefer SPECIFICITY over brevity. Length is fine. Vagueness is not.
+- If the transcript contains code, list the files/components touched and what changed. Quote critical snippets verbatim if they encode a decision.
+- If something is ambiguous in the transcript, say so explicitly rather than inventing.
+- Output must be self-contained: another AI reading ONLY your output should be able to continue the conversation without ever seeing the original transcript.`;
 
     const userPrompt = `Platform: ${platform || 'Unknown'}
 Page Title: ${pageTitle || 'Unknown'}
