@@ -422,6 +422,36 @@ async function recallMemory(accessToken, options = {}) {
   return await response.json();
 }
 
+/**
+ * Trigger the merge-team-context edge function for a given team.
+ * Requires a valid Supabase JWT (the caller must be a team member).
+ * Throws an Error with .status set to the HTTP status code so the caller
+ * can distinguish auth/forbidden/etc. from generic failures.
+ */
+async function mergeTeamContext(accessToken, teamId, sinceDays = 7) {
+  if (!accessToken) {
+    const err = new Error('Not signed in');
+    err.status = 401;
+    throw err;
+  }
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/merge-team-context`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${accessToken}`,
+      'apikey': SUPABASE_ANON_KEY
+    },
+    body: JSON.stringify({ teamId, sinceDays })
+  });
+
+  if (!response.ok) {
+    const err = new Error(`merge-team-context failed (${response.status})`);
+    err.status = response.status;
+    throw err;
+  }
+  return await response.json();
+}
+
 // ===== V2 AUTH SESSION DETECTION =====
 
 /**
