@@ -123,31 +123,82 @@ serve(async (req) => {
       });
     }
 
-    // This function can be called by cron (no auth) or by authenticated user
     const authHeader = req.headers.get("Authorization") ?? "";
-    
+    const cronSecretHeader = req.headers.get("x-cron-secret") ?? "";
+
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Backend keys are not configured");
+    const CRON_SECRET = Deno.env.get("MERGE_TEAM_CRON_SECRET");
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !SUPABASE_ANON_KEY) {
+      console.error("merge-team-context: missing backend env");
+      return new Response(JSON.stringify({ error: "Service unavailable" }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY not configured");
+      console.error("merge-team-context: missing LOVABLE_API_KEY");
+      return new Response(JSON.stringify({ error: "Service unavailable" }), {
+        status: 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    // Use service role for cron jobs, or user auth for manual triggers
+    // AuthN: either a valid cron secret OR a valid user JWT with team membership
+    const isCron = !!CRON_SECRET && cronSecretHeader === CRON_SECRET;
+    let callerUserId: string | null = null;
+
+    if (!isCron) {
+      if (!authHeader.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const userClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const token = authHeader.replace("Bearer ", "");
+      const { data: claims, error: claimsErr } = await userClient.auth.getClaims(token);
+      if (claimsErr || !claims?.claims?.sub) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      callerUserId = claims.claims.sub as string;
+    }
+
+    // Service-role client for the actual work (after authZ checks pass)
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const body = (await req.json()) as MergeRequest;
-    
-    // Validate teamId
+
     if (!body.teamId || !isValidUuid(body.teamId)) {
       return new Response(JSON.stringify({ error: "Invalid teamId" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // AuthZ: non-cron callers must be a member of the team (via memories)
+    if (!isCron && callerUserId) {
+      const { data: membership, error: memCheckErr } = await supabase
+        .from("memories")
+        .select("id")
+        .eq("team_id", body.teamId)
+        .eq("user_id", callerUserId)
+        .limit(1)
+        .maybeSingle();
+      if (memCheckErr || !membership) {
+        return new Response(JSON.stringify({ error: "Forbidden" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     const sinceDays = Math.min(Math.max(body.sinceDays ?? 7, 1), 90);
