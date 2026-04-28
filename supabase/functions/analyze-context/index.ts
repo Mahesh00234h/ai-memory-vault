@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 // Input validation constants
-const MAX_RAW_CONTENT_LENGTH = 100000;
+const MAX_RAW_CONTENT_LENGTH = 500000;
 const MAX_PLATFORM_LENGTH = 50;
 const MAX_PAGE_TITLE_LENGTH = 200;
 
@@ -70,77 +70,74 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY is not configured");
     }
 
-    // Truncate content if too long (to stay within token limits)
-    const truncatedContent = rawContent.length > 30000 
-      ? rawContent.substring(0, 30000) + "\n\n[Content truncated for analysis...]" 
+    // Send the FULL raw chat — only truncate if extremely large to fit token window
+    const MAX_CHARS_FOR_AI = 90000; // Gemini Flash handles ~1M tokens, but cap for cost/latency
+    const truncatedContent = rawContent.length > MAX_CHARS_FOR_AI
+      ? rawContent.substring(0, MAX_CHARS_FOR_AI) + "\n\n[...conversation truncated due to length, but analyze everything above thoroughly...]"
       : rawContent;
 
-    const systemPrompt = `You are an expert context extraction AI. Your job is to transform AI chat conversations into comprehensive, structured context documents that allow someone to seamlessly continue the conversation with full understanding.
+    const systemPrompt = `You are a context extraction engine. You receive an ENTIRE raw AI chat transcript and produce a single, dense, complete context document that another AI can read to instantly continue the work with ZERO loss of information.
 
-You must produce RICH, DETAILED context - not surface-level summaries. Think of yourself as creating a "project memory" that captures the essence of the entire discussion.
-
-Your analysis should be:
-- SPECIFIC: Use exact terminology, names, and concepts from the conversation
-- ACTIONABLE: Focus on what was decided, what's being built, and what's next
-- INSIGHTFUL: Capture not just what was said, but the underlying intent and reasoning
-- COMPREHENSIVE: Cover technical, strategic, and contextual dimensions
-
-Never produce generic or vague summaries. Every field should contain substantive, useful information.`;
+Hard rules:
+- READ THE ENTIRE TRANSCRIPT. Do not skim. Do not skip the middle.
+- Be EXHAUSTIVE: capture every decision, every name, every file, every API, every number, every constraint, every preference, every requirement, every rejected option (and why), and every open thread.
+- Use the EXACT terminology, identifiers, code names, file paths, function names, URLs, and people/role names from the transcript. Never paraphrase technical terms.
+- Prefer SPECIFICITY over brevity. Length is fine. Vagueness is not.
+- If the transcript contains code, list the files/components touched and what changed. Quote critical snippets verbatim if they encode a decision.
+- If something is ambiguous in the transcript, say so explicitly rather than inventing.
+- Output must be self-contained: another AI reading ONLY your output should be able to continue the conversation without ever seeing the original transcript.`;
 
     const userPrompt = `Platform: ${platform || 'Unknown'}
 Page Title: ${pageTitle || 'Unknown'}
+Total transcript length: ${rawContent.length} characters
 
-CONVERSATION TO ANALYZE:
+=== FULL RAW CONVERSATION TRANSCRIPT (read it ALL, beginning to end) ===
 ${truncatedContent}
+=== END OF TRANSCRIPT ===
 
----
+Now produce a JSON object that another AI can read to fully continue this conversation. Be EXHAUSTIVE — long, dense, specific. Quote exact names/terms/files/URLs/numbers from the transcript. Do not generalize.
 
-Analyze this conversation deeply and return a JSON object with these fields. Be thorough and specific - imagine someone needs to continue this exact conversation with a different AI:
+Return ONLY this JSON shape (no extra commentary):
 
 {
-  "title": "A clear, descriptive title that captures the essence (max 60 chars)",
-  
-  "topic": "The main subject/domain being discussed",
-  
-  "projectOrigin": "What is the origin/purpose of this project or discussion? What problem is being solved? Who is it for? (2-3 sentences)",
-  
-  "coreInsights": "What are the key conceptual breakthroughs or reframings in this conversation? What makes this approach unique or important? (2-4 sentences)",
-  
-  "summary": "A comprehensive summary covering the main discussion arc, key conclusions, and current state. Should be detailed enough to understand the full context. (4-6 sentences)",
-  
+  "title": "Clear specific title (max 60 chars) — name the actual project/topic, not generic words",
+
+  "topic": "The exact subject/domain (specific, not vague)",
+
+  "projectOrigin": "Why does this project/conversation exist? What problem? Who is the user? What was the initial ask? (3-5 sentences, specific)",
+
+  "coreInsights": "The non-obvious realizations, reframings, or 'aha' moments that emerged. What makes the chosen approach right? (4-6 sentences)",
+
+  "summary": "A long, detailed narrative summary covering the ENTIRE conversation arc from start to finish — what was asked, explored, tried, what worked, what didn't, and where things stand now. Include specific names, files, components, decisions. Aim for 8-15 sentences. This is the most important field — do NOT be brief.",
+
   "whatHasBeenBuilt": [
-    "Specific thing that was created, defined, or established",
-    "Another concrete output or decision from the conversation"
+    "Every concrete artifact/feature/file/component/system created or modified. 5-20 specific items."
   ],
-  
+
   "keyPoints": [
-    "Important point or insight 1",
-    "Important point or insight 2",
-    "Up to 8 key points that someone continuing this conversation MUST know"
+    "Every fact, requirement, preference, constraint, naming convention another AI MUST know. 8-15 specific items."
   ],
-  
-  "techStack": ["Technology", "Framework", "Tool", "Methodology mentioned"],
-  
+
+  "techStack": ["Every technology, library, framework, service, model, API, or tool — exact names and versions if given"],
+
   "decisions": [
-    "A specific decision that was made",
-    "Another decision or choice that was locked in"
+    "Every decision locked in, with the WHY. Include rejected alternatives. 5-15 items."
   ],
-  
-  "strategicDirection": "What is the overall strategy or approach being taken? What is the 'philosophy' or 'design principle' guiding the work? (2-3 sentences)",
-  
-  "currentStatus": "What has been completed? What is in progress? What is the next step? (2-3 sentences)",
-  
+
+  "strategicDirection": "The overall philosophy / design principles / 'north star' guiding the work. (3-5 sentences)",
+
+  "currentStatus": "Exactly what is done, what is in progress, and the immediate next step. Reference specific files/features by name. (4-6 sentences)",
+
   "openQuestions": [
-    "Unresolved question or decision that needs to be made",
-    "Another open item that was left hanging"
+    "Every unresolved question, ambiguity, TODO, or pending decision. 3-10 specific items."
   ],
-  
-  "continuationPrompt": "A brief instruction for how to continue this conversation. What should NOT be re-explained? What should be the focus going forward? (2-3 sentences)",
-  
-  "importantContext": "Any critical context, constraints, or nuances that might be lost if not explicitly stated. Include any 'rules' or 'principles' established in the conversation. (2-3 sentences)"
+
+  "continuationPrompt": "Direct instructions to the next AI: 'You are picking up X. Do NOT re-explain Y. The user prefers Z. Focus on W next.' Concrete and prescriptive. (4-6 sentences)",
+
+  "importantContext": "Critical nuances, hidden constraints, user preferences, conventions, gotchas, 'rules of the road' that would be lost otherwise. (5-10 sentences)"
 }
 
-Be extremely thorough. If a field doesn't apply, use an empty string or empty array, but try to extract as much as possible.`;
+Remember: another AI will rely SOLELY on your output. Missing detail = broken handoff. Be exhaustive.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -149,13 +146,13 @@ Be extremely thorough. If a field doesn't apply, use an empty string or empty ar
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-pro",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
-        max_tokens: 4000,
+        temperature: 0.2,
+        max_tokens: 16000,
         response_format: { type: "json_object" },
       }),
     });
@@ -206,13 +203,13 @@ Be extremely thorough. If a field doesn't apply, use an empty string or empty ar
       projectOrigin: analysis.projectOrigin || null,
       coreInsights: analysis.coreInsights || null,
       summary: analysis.summary || null,
-      whatHasBeenBuilt: Array.isArray(analysis.whatHasBeenBuilt) ? analysis.whatHasBeenBuilt.slice(0, 10) : [],
-      keyPoints: Array.isArray(analysis.keyPoints) ? analysis.keyPoints.slice(0, 8) : [],
-      techStack: Array.isArray(analysis.techStack) ? analysis.techStack.slice(0, 15) : [],
-      decisions: Array.isArray(analysis.decisions) ? analysis.decisions.slice(0, 8) : [],
+      whatHasBeenBuilt: Array.isArray(analysis.whatHasBeenBuilt) ? analysis.whatHasBeenBuilt.slice(0, 25) : [],
+      keyPoints: Array.isArray(analysis.keyPoints) ? analysis.keyPoints.slice(0, 20) : [],
+      techStack: Array.isArray(analysis.techStack) ? analysis.techStack.slice(0, 30) : [],
+      decisions: Array.isArray(analysis.decisions) ? analysis.decisions.slice(0, 20) : [],
       strategicDirection: analysis.strategicDirection || null,
       currentStatus: analysis.currentStatus || null,
-      openQuestions: Array.isArray(analysis.openQuestions) ? analysis.openQuestions.slice(0, 8) : [],
+      openQuestions: Array.isArray(analysis.openQuestions) ? analysis.openQuestions.slice(0, 15) : [],
       continuationPrompt: analysis.continuationPrompt || null,
       importantContext: analysis.importantContext || null,
     };
