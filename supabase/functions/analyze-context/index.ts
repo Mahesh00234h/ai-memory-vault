@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 // Input validation constants
-const MAX_RAW_CONTENT_LENGTH = 100000;
+const MAX_RAW_CONTENT_LENGTH = 500000;
 const MAX_PLATFORM_LENGTH = 50;
 const MAX_PAGE_TITLE_LENGTH = 200;
 
