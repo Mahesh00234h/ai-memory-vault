@@ -65,6 +65,7 @@ const elements = {
   teamMemberCount: document.getElementById('teamMemberCount'),
   shareTeamBtn: document.getElementById('shareTeamBtn'),
   leaveTeamBtn: document.getElementById('leaveTeamBtn'),
+  mergeTeamBtn: document.getElementById('mergeTeamBtn'),
   teamContextsTab: document.getElementById('teamContextsTab'),
   teamSummaryTab: document.getElementById('teamSummaryTab'),
   teamContextsList: document.getElementById('teamContextsList'),
@@ -994,6 +995,57 @@ async function handleLeaveTeam() {
   }
 }
 
+async function handleMergeTeamKnowledge(isRetry = false) {
+  if (!currentTeam) {
+    showToast('Join a team first', 'error');
+    return;
+  }
+
+  // Need a Supabase JWT (web app session) to call the secured edge function
+  let session = null;
+  try {
+    session = await window.API.getV2Session?.();
+  } catch (_) { /* ignored */ }
+
+  if (!session?.accessToken) {
+    showToast(
+      "Couldn't merge: please sign in to the web app",
+      'error',
+      {
+        actionLabel: 'Open',
+        onAction: () => {
+          const url = window.API.getWebAppLoginUrl?.() || window.API.getWebAppUrl?.();
+          if (url) chrome.tabs.create({ url });
+        }
+      }
+    );
+    return;
+  }
+
+  if (elements.mergeTeamBtn) elements.mergeTeamBtn.disabled = true;
+  showToast(isRetry ? 'Retrying merge…' : 'Merging team knowledge…', 'info');
+
+  try {
+    const result = await window.API.mergeTeamContext(session.accessToken, currentTeam.id);
+    const merged = result?.merged ?? 0;
+    showToast(merged > 0 ? `Merged ${merged} topic${merged === 1 ? '' : 's'}` : 'Nothing new to merge', 'success');
+  } catch (e) {
+    console.error('merge-team-context failed', e);
+    const status = e?.status;
+    let msg = "Couldn't merge team knowledge. Please try again.";
+    if (status === 401) msg = "Session expired. Sign in to the web app and retry.";
+    else if (status === 403) msg = "You don't have access to merge this team.";
+    else if (status === 429) msg = "Too many merge requests. Try again shortly.";
+
+    showToast(msg, 'error', {
+      actionLabel: 'Retry',
+      onAction: () => handleMergeTeamKnowledge(true)
+    });
+  } finally {
+    if (elements.mergeTeamBtn) elements.mergeTeamBtn.disabled = false;
+  }
+}
+
 async function handleShareToTeam() {
   if (!currentTeam || !selectedContextId) {
     showToast('Join a team first', 'error');
@@ -1395,6 +1447,7 @@ function setupEventListeners() {
   elements.teamForm?.addEventListener('submit', handleTeamFormSubmit);
   elements.shareTeamBtn?.addEventListener('click', handleShareInvite);
   elements.leaveTeamBtn?.addEventListener('click', handleLeaveTeam);
+  elements.mergeTeamBtn?.addEventListener('click', () => handleMergeTeamKnowledge());
   elements.shareToTeamBtn?.addEventListener('click', handleShareToTeam);
   
   // Team tabs
@@ -2031,16 +2084,42 @@ async function copyToClipboard(text) {
   }
 }
 
-function showToast(message, type = '') {
-  elements.toast.textContent = message;
-  elements.toast.className = 'toast show';
-  if (type) {
-    elements.toast.classList.add(type);
+function showToast(message, type = '', options = {}) {
+  const { actionLabel = null, onAction = null, duration } = options;
+  const el = elements.toast;
+
+  // Reset content
+  el.innerHTML = '';
+  el.className = 'toast show';
+  if (type) el.classList.add(type);
+
+  const msgSpan = document.createElement('span');
+  msgSpan.className = 'toast-message';
+  msgSpan.textContent = message;
+  el.appendChild(msgSpan);
+
+  // Clear any previous timer
+  if (showToast._timer) {
+    clearTimeout(showToast._timer);
+    showToast._timer = null;
   }
-  
-  setTimeout(() => {
-    elements.toast.classList.remove('show');
-  }, 2500);
+
+  if (actionLabel && typeof onAction === 'function') {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'toast-action';
+    btn.textContent = actionLabel;
+    btn.addEventListener('click', () => {
+      el.classList.remove('show');
+      try { onAction(); } catch (e) { console.error('toast action failed', e); }
+    });
+    el.appendChild(btn);
+  }
+
+  const ms = duration ?? (actionLabel ? 6000 : 2500);
+  showToast._timer = setTimeout(() => {
+    el.classList.remove('show');
+  }, ms);
 }
 
 function escapeHtml(text) {
