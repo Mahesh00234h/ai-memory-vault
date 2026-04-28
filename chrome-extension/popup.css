@@ -571,6 +571,8 @@ main {
   opacity: 0.9;
 }
 .toast .toast-action:hover { opacity: 1; }
+
+/* ===== TABS ===== */
 .tabs {
   display: flex;
   gap: var(--spacing-xs);
