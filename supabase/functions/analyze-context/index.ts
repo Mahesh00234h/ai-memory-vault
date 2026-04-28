@@ -146,13 +146,13 @@ Remember: another AI will rely SOLELY on your output. Missing detail = broken ha
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "google/gemini-2.5-pro",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.3,
-        max_tokens: 4000,
+        temperature: 0.2,
+        max_tokens: 16000,
         response_format: { type: "json_object" },
       }),
     });
