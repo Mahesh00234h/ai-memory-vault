@@ -313,7 +313,7 @@ serve(async (req) => {
         results.push({ topic, merged: true });
       } catch (e) {
         console.error(`Error merging topic ${topic}:`, e);
-        results.push({ topic, merged: false, error: e instanceof Error ? e.message : "Unknown error" });
+        results.push({ topic, merged: false, error: "Merge failed" });
       }
     }
 
