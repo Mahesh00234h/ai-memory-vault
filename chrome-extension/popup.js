@@ -1817,17 +1817,19 @@ async function handleExportLastRaw() {
     }
 
     // Trigger download as .txt
+    const filename = `${platform}_${title}_${ts}.txt`;
     const blob = new Blob([fileText], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${platform}_${title}_${ts}.txt`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-    showToast(copied ? 'Exported & copied to clipboard' : 'Exported (clipboard blocked)', 'success');
+    const clipMsg = copied ? '📋 Copied to clipboard' : '⚠️ Clipboard blocked';
+    showToast(`✓ Downloaded ${filename} — ${clipMsg}`, copied ? 'success' : 'warning');
   } catch (e) {
     console.error('Export last raw failed:', e);
     showToast('Export failed: ' + e.message, 'error');
