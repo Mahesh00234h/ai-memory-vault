@@ -65,6 +65,7 @@ const elements = {
   teamMemberCount: document.getElementById('teamMemberCount'),
   shareTeamBtn: document.getElementById('shareTeamBtn'),
   leaveTeamBtn: document.getElementById('leaveTeamBtn'),
+  mergeTeamBtn: document.getElementById('mergeTeamBtn'),
   teamContextsTab: document.getElementById('teamContextsTab'),
   teamSummaryTab: document.getElementById('teamSummaryTab'),
   teamContextsList: document.getElementById('teamContextsList'),
