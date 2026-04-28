@@ -92,6 +92,7 @@ const elements = {
   autoCaptureToggle: document.getElementById('autoCaptureToggle'),
   v2IngestToggle: document.getElementById('v2IngestToggle'),
   refreshCaptureBtn: document.getElementById('refreshCaptureBtn'),
+  exportLastRawBtn: document.getElementById('exportLastRawBtn'),
   
   // Buttons
   addProjectBtn: document.getElementById('addProjectBtn'),
