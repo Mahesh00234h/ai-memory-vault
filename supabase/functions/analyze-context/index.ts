@@ -89,58 +89,55 @@ Hard rules:
 
     const userPrompt = `Platform: ${platform || 'Unknown'}
 Page Title: ${pageTitle || 'Unknown'}
+Total transcript length: ${rawContent.length} characters
 
-CONVERSATION TO ANALYZE:
+=== FULL RAW CONVERSATION TRANSCRIPT (read it ALL, beginning to end) ===
 ${truncatedContent}
+=== END OF TRANSCRIPT ===
 
----
+Now produce a JSON object that another AI can read to fully continue this conversation. Be EXHAUSTIVE — long, dense, specific. Quote exact names/terms/files/URLs/numbers from the transcript. Do not generalize.
 
-Analyze this conversation deeply and return a JSON object with these fields. Be thorough and specific - imagine someone needs to continue this exact conversation with a different AI:
+Return ONLY this JSON shape (no extra commentary):
 
 {
-  "title": "A clear, descriptive title that captures the essence (max 60 chars)",
-  
-  "topic": "The main subject/domain being discussed",
-  
-  "projectOrigin": "What is the origin/purpose of this project or discussion? What problem is being solved? Who is it for? (2-3 sentences)",
-  
-  "coreInsights": "What are the key conceptual breakthroughs or reframings in this conversation? What makes this approach unique or important? (2-4 sentences)",
-  
-  "summary": "A comprehensive summary covering the main discussion arc, key conclusions, and current state. Should be detailed enough to understand the full context. (4-6 sentences)",
-  
+  "title": "Clear specific title (max 60 chars) — name the actual project/topic, not generic words",
+
+  "topic": "The exact subject/domain (specific, not vague)",
+
+  "projectOrigin": "Why does this project/conversation exist? What problem? Who is the user? What was the initial ask? (3-5 sentences, specific)",
+
+  "coreInsights": "The non-obvious realizations, reframings, or 'aha' moments that emerged. What makes the chosen approach right? (4-6 sentences)",
+
+  "summary": "A long, detailed narrative summary covering the ENTIRE conversation arc from start to finish — what was asked, explored, tried, what worked, what didn't, and where things stand now. Include specific names, files, components, decisions. Aim for 8-15 sentences. This is the most important field — do NOT be brief.",
+
   "whatHasBeenBuilt": [
-    "Specific thing that was created, defined, or established",
-    "Another concrete output or decision from the conversation"
+    "Every concrete artifact/feature/file/component/system created or modified. 5-20 specific items."
   ],
-  
+
   "keyPoints": [
-    "Important point or insight 1",
-    "Important point or insight 2",
-    "Up to 8 key points that someone continuing this conversation MUST know"
+    "Every fact, requirement, preference, constraint, naming convention another AI MUST know. 8-15 specific items."
   ],
-  
-  "techStack": ["Technology", "Framework", "Tool", "Methodology mentioned"],
-  
+
+  "techStack": ["Every technology, library, framework, service, model, API, or tool — exact names and versions if given"],
+
   "decisions": [
-    "A specific decision that was made",
-    "Another decision or choice that was locked in"
+    "Every decision locked in, with the WHY. Include rejected alternatives. 5-15 items."
   ],
-  
-  "strategicDirection": "What is the overall strategy or approach being taken? What is the 'philosophy' or 'design principle' guiding the work? (2-3 sentences)",
-  
-  "currentStatus": "What has been completed? What is in progress? What is the next step? (2-3 sentences)",
-  
+
+  "strategicDirection": "The overall philosophy / design principles / 'north star' guiding the work. (3-5 sentences)",
+
+  "currentStatus": "Exactly what is done, what is in progress, and the immediate next step. Reference specific files/features by name. (4-6 sentences)",
+
   "openQuestions": [
-    "Unresolved question or decision that needs to be made",
-    "Another open item that was left hanging"
+    "Every unresolved question, ambiguity, TODO, or pending decision. 3-10 specific items."
   ],
-  
-  "continuationPrompt": "A brief instruction for how to continue this conversation. What should NOT be re-explained? What should be the focus going forward? (2-3 sentences)",
-  
-  "importantContext": "Any critical context, constraints, or nuances that might be lost if not explicitly stated. Include any 'rules' or 'principles' established in the conversation. (2-3 sentences)"
+
+  "continuationPrompt": "Direct instructions to the next AI: 'You are picking up X. Do NOT re-explain Y. The user prefers Z. Focus on W next.' Concrete and prescriptive. (4-6 sentences)",
+
+  "importantContext": "Critical nuances, hidden constraints, user preferences, conventions, gotchas, 'rules of the road' that would be lost otherwise. (5-10 sentences)"
 }
 
-Be extremely thorough. If a field doesn't apply, use an empty string or empty array, but try to extract as much as possible.`;
+Remember: another AI will rely SOLELY on your output. Missing detail = broken handoff. Be exhaustive.`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
