@@ -1807,13 +1807,40 @@ async function handleExportLastRaw() {
     const header = `# ${last.title || 'Captured Chat'}\nPlatform: ${platform}\nURL: ${last.url || ''}\nCaptured: ${new Date(last.timestamp || Date.now()).toISOString()}\nMessages: ${last.messageCount || 'n/a'}\n\n---\n\n`;
     const fileText = header + raw;
 
-    // Copy to clipboard
+    // Copy to clipboard (with execCommand fallback)
     let copied = false;
+    let copyMethod = '';
     try {
-      await navigator.clipboard.writeText(fileText);
-      copied = true;
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(fileText);
+        copied = true;
+        copyMethod = 'clipboard API';
+      } else {
+        throw new Error('Clipboard API unavailable');
+      }
     } catch (e) {
-      console.warn('Clipboard write failed:', e);
+      console.warn('navigator.clipboard failed, trying execCommand fallback:', e);
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = fileText;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.top = '0';
+        ta.style.left = '0';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ta.setSelectionRange(0, fileText.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (ok) {
+          copied = true;
+          copyMethod = 'fallback';
+        }
+      } catch (e2) {
+        console.warn('execCommand fallback also failed:', e2);
+      }
     }
 
     // Trigger download as .txt
@@ -1828,7 +1855,9 @@ async function handleExportLastRaw() {
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-    const clipMsg = copied ? '📋 Copied to clipboard' : '⚠️ Clipboard blocked';
+    const clipMsg = copied
+      ? (copyMethod === 'fallback' ? '📋 Copied (fallback)' : '📋 Copied to clipboard')
+      : '⚠️ Clipboard blocked — file downloaded only';
     showToast(`✓ Downloaded ${filename} — ${clipMsg}`, copied ? 'success' : 'warning');
   } catch (e) {
     console.error('Export last raw failed:', e);
