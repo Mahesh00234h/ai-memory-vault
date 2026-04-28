@@ -1396,6 +1396,7 @@ function setupEventListeners() {
   elements.teamForm?.addEventListener('submit', handleTeamFormSubmit);
   elements.shareTeamBtn?.addEventListener('click', handleShareInvite);
   elements.leaveTeamBtn?.addEventListener('click', handleLeaveTeam);
+  elements.mergeTeamBtn?.addEventListener('click', () => handleMergeTeamKnowledge());
   elements.shareToTeamBtn?.addEventListener('click', handleShareToTeam);
   
   // Team tabs
