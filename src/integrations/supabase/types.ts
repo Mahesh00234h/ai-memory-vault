@@ -398,6 +398,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      current_extension_user_id: { Args: never; Returns: string }
       is_team_member: {
         Args: { check_team_id: string; check_user_id: string }
         Returns: boolean
