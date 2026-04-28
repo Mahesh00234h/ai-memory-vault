@@ -641,6 +641,7 @@ if (typeof window !== 'undefined') {
     subscribeToTeamContexts,
     unsubscribeFromRealtime,
     recallMemory,
+    mergeTeamContext,
     // V2 Auth functions
     detectV2Session,
     getV2Session,
